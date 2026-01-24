@@ -17,6 +17,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    "whitenoise.runserver_nostatic",
     
     # Third party
     'rest_framework',
@@ -24,7 +25,7 @@ INSTALLED_APPS = [
     'corsheaders',
     
     # Your apps
-    'api',  # Your main app - CHANGE THIS if your app has a different name
+    'pestcheck',  # Your main app - CHANGE THIS if your app has a different name
 ]
 
 MIDDLEWARE = [
@@ -44,7 +45,7 @@ ROOT_URLCONF = 'backend.urls'  # e.g., 'backend.urls' or 'config.urls'
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'BACKEND': 'django.template.backend.django.DjangoTemplates',
         'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -62,12 +63,12 @@ TEMPLATES = [
 WSGI_APPLICATION = 'backend.wsgi.application'  # e.g., 'backend.wsgi.application'
 
 # Custom User Model
-AUTH_USER_MODEL = 'api.User'  # CHANGE 'api' if your app has a different name
+AUTH_USER_MODEL = 'pestcheck.User'  # CHANGE 'api' if your app has a different name
 
 # Database Configuration
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
+        'ENGINE': 'django.db.backend.postgresql',
         'NAME': config('PGDATABASE'),
         'USER': config('PGUSER'),
         'PASSWORD': config('PGPASSWORD'),
@@ -135,6 +136,7 @@ SIMPLE_JWT = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
+    "https://pestcheck.netlify.app",
     # Add your Netlify URL here later: "https://your-app.netlify.app"
 ]
 
@@ -144,5 +146,6 @@ CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
+    "https://pestcheck.netlify.app",
     # Add your Netlify URL here later: "https://your-app.netlify.app"
 ]
