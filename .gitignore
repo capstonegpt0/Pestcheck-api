@@ -1,0 +1,16 @@
+venv/
+env/
+*.pyc
+__pycache__/
+db.sqlite3
+staticfiles/
+media/
+.env
+*.log
+yolov5/
+runs/
+detections/
+models/
+*.pt
+*.pth
+test.jpg
