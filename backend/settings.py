@@ -68,7 +68,7 @@ AUTH_USER_MODEL = 'pestcheck.User'  # CHANGE 'api' if your app has a different n
 # Database Configuration
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backend.postgresql',
+        'ENGINE': 'django.db.backends.postgresql',
         'NAME': config('PGDATABASE'),
         'USER': config('PGUSER'),
         'PASSWORD': config('PGPASSWORD'),
