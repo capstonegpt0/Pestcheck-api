@@ -25,7 +25,7 @@ INSTALLED_APPS = [
     'corsheaders',
     
     # Your apps
-    'pestcheck',  # Your main app - CHANGE THIS if your app has a different name
+    'api',  # Your main app - CHANGE THIS if your app has a different name
 ]
 
 MIDDLEWARE = [
@@ -63,7 +63,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'backend.wsgi.application'  # e.g., 'backend.wsgi.application'
 
 # Custom User Model
-AUTH_USER_MODEL = 'pestcheck.User'  # CHANGE 'api' if your app has a different name
+AUTH_USER_MODEL = 'api.User'  # CHANGE 'api' if your app has a different name
 
 # Database Configuration
 DATABASES = {
