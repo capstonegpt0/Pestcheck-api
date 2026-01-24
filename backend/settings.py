@@ -17,7 +17,6 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    "whitenoise.runserver_nostatic",
     
     # Third party
     'rest_framework',
@@ -45,7 +44,7 @@ ROOT_URLCONF = 'backend.urls'  # e.g., 'backend.urls' or 'config.urls'
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backend.django.DjangoTemplates',
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {

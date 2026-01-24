@@ -118,21 +118,30 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         
-        # Filter by geofence (Magalang, Pampanga)
-        queryset = queryset.filter(
-            latitude__gte=MAGALANG_BOUNDS['south'],
-            latitude__lte=MAGALANG_BOUNDS['north'],
-            longitude__gte=MAGALANG_BOUNDS['west'],
-            longitude__lte=MAGALANG_BOUNDS['east']
-        )
-        
-        # Farmers see only verified or their own detections
-        if self.request.user.role == 'farmer':
+        # Admins see everything
+        if self.request.user.role == 'admin':
+            # Filter by geofence (Magalang, Pampanga)
+            queryset = queryset.filter(
+                latitude__gte=MAGALANG_BOUNDS['south'],
+                latitude__lte=MAGALANG_BOUNDS['north'],
+                longitude__gte=MAGALANG_BOUNDS['west'],
+                longitude__lte=MAGALANG_BOUNDS['east']
+            )
+        else:
+            # Farmers see their own detections (all statuses) OR verified detections from others
             queryset = queryset.filter(
                 Q(user=self.request.user) | Q(status='verified')
             )
+            
+            # Filter by geofence (Magalang, Pampanga)
+            queryset = queryset.filter(
+                latitude__gte=MAGALANG_BOUNDS['south'],
+                latitude__lte=MAGALANG_BOUNDS['north'],
+                longitude__gte=MAGALANG_BOUNDS['west'],
+                longitude__lte=MAGALANG_BOUNDS['east']
+            )
         
-        # Filter by user if requested
+        # Filter by user if requested (for "my detections" view)
         if self.request.query_params.get('my_detections'):
             queryset = queryset.filter(user=self.request.user)
         
@@ -346,19 +355,31 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         print("PATCH REQUEST - UPDATING DETECTION")
         print("=" * 70)
         print(f"User: {request.user}")
+        print(f"User role: {request.user.role}")
         print(f"Detection ID: {kwargs.get('pk')}")
         print(f"Data: {request.data}")
         
         try:
-            instance = self.get_object()
-            print(f"Current detection: {instance.id} - {instance.pest_name}")
+            # Get the detection without filtering
+            # This ensures we can access it even if get_queryset() would filter it out
+            detection_id = kwargs.get('pk')
+            try:
+                instance = PestDetection.objects.get(id=detection_id)
+            except PestDetection.DoesNotExist:
+                print(f"✗ Detection {detection_id} does not exist in database")
+                return Response({
+                    'error': f'Detection with ID {detection_id} not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            print(f"Found detection: ID={instance.id}, User={instance.user.username}, Status={instance.status}")
             print(f"Current active: {instance.active}")
-            print(f"Current status: {instance.status}")
             
             # Only owner or admin can update
             if instance.user != request.user and request.user.role != 'admin':
-                print("✗ Permission denied")
+                print(f"✗ Permission denied: detection belongs to {instance.user.username}, requester is {request.user.username}")
                 return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+            
+            print("✓ Permission check passed")
             
             # Update fields
             if 'active' in request.data:
