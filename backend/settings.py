@@ -1,13 +1,27 @@
 import os
 from pathlib import Path
 from decouple import config
+import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Security Settings
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
+
+# Updated ALLOWED_HOSTS for Render
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='').split(',')
+if not ALLOWED_HOSTS or ALLOWED_HOSTS == ['']:
+    ALLOWED_HOSTS = [
+        'localhost',
+        '127.0.0.1',
+        '.onrender.com',  # Allow all Render domains
+    ]
+
+# Get the Render external URL
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 # Application definition
 INSTALLED_APPS = [
@@ -21,16 +35,17 @@ INSTALLED_APPS = [
     # Third party
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',  # Add this for token blacklisting
     'corsheaders',
     
     # Your apps
-    'api',  # Your main app - CHANGE THIS if your app has a different name
+    'api',
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',  # Must be at the top
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # For static files
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -39,8 +54,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# CHANGE THIS to your actual project name
-ROOT_URLCONF = 'backend.urls'  # e.g., 'backend.urls' or 'config.urls'
+ROOT_URLCONF = 'backend.urls'
 
 TEMPLATES = [
     {
@@ -58,23 +72,36 @@ TEMPLATES = [
     },
 ]
 
-# CHANGE THIS to your actual project name
-WSGI_APPLICATION = 'backend.wsgi.application'  # e.g., 'backend.wsgi.application'
+WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Custom User Model
-AUTH_USER_MODEL = 'api.User'  # CHANGE 'api' if your app has a different name
+AUTH_USER_MODEL = 'api.User'
 
 # Database Configuration
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('PGDATABASE'),
-        'USER': config('PGUSER'),
-        'PASSWORD': config('PGPASSWORD'),
-        'HOST': config('PGHOST'),
-        'PORT': config('PGPORT', default='5432'),
+# Render provides DATABASE_URL automatically, fallback to individual vars
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+if DATABASE_URL:
+    # Use DATABASE_URL if available (Render provides this)
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
     }
-}
+else:
+    # Fallback to individual environment variables
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('PGDATABASE', 'pestcheck'),
+            'USER': os.environ.get('PGUSER', 'postgres'),
+            'PASSWORD': os.environ.get('PGPASSWORD', ''),
+            'HOST': os.environ.get('PGHOST', 'localhost'),
+            'PORT': os.environ.get('PGPORT', '5432'),
+        }
+    }
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -131,20 +158,39 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
 }
 
-# CORS Settings
+# CORS Settings - Updated for production
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
     "https://pestcheck.netlify.app",
-    # Add your Netlify URL here later: "https://your-app.netlify.app"
 ]
+
+# Add your Render backend URL when you get it
+RENDER_BACKEND_URL = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_BACKEND_URL:
+    CORS_ALLOWED_ORIGINS.append(f"https://{RENDER_BACKEND_URL}")
 
 CORS_ALLOW_CREDENTIALS = True
 
-# For sessions/cookies across domains
+# CSRF Settings
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
     "https://pestcheck.netlify.app",
-    # Add your Netlify URL here later: "https://your-app.netlify.app"
 ]
+
+# Add Render URLs
+if RENDER_EXTERNAL_HOSTNAME:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
+
+# Security Settings for Production
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
