@@ -70,3 +70,8 @@ class PestDetectionSerializer(serializers.ModelSerializer):
         representation['pest'] = instance.pest_name or ""
         representation['farm_id'] = instance.farm.id if instance.farm else None
         return representation
+
+class PestInfoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PestInfo
+        fields = '__all__'
