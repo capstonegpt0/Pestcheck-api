@@ -10,11 +10,6 @@ from .models import (
     Alert
 )
 
-class PestInfoSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PestInfo
-        fields = '__all__'
-
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -80,16 +75,34 @@ class PestDetectionSerializer(serializers.ModelSerializer):
         return representation
 
 class PestInfoSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True, allow_null=True)
+    
     class Meta:
         model = PestInfo
         fields = '__all__'
+        read_only_fields = ['created_by', 'created_at', 'updated_at']
 
 class InfestationReportSerializer(serializers.ModelSerializer):
+    detection_details = PestDetectionSerializer(source='detection', read_only=True)
+    verified_by_name = serializers.CharField(source='verified_by.username', read_only=True, allow_null=True)
+    
     class Meta:
         model = InfestationReport
         fields = '__all__'
-        
+        read_only_fields = ['reported_at', 'verified_by']
+
 class AlertSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True)
+    
     class Meta:
         model = Alert
-        fields = "__all__"
+        fields = '__all__'
+        read_only_fields = ['created_by', 'created_at']
+
+class UserActivitySerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.username', read_only=True)
+    
+    class Meta:
+        model = UserActivity
+        fields = ['id', 'user', 'user_name', 'action', 'details', 'ip_address', 'timestamp']
+        read_only_fields = ['id', 'timestamp']

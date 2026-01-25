@@ -400,6 +400,7 @@ class DetectionStatisticsAPIView(APIView):
         })
 
 # ==================== PEST INFO VIEWSET ====================
+# In api/views.py
 class PestInfoViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PestInfo.objects.filter(is_published=True)
     serializer_class = PestInfoSerializer
@@ -408,7 +409,11 @@ class PestInfoViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=['get'])
     def search(self, request):
         query = request.query_params.get('q', '')
-        pests = self.queryset.filter(Q(name__icontains=query) | Q(scientific_name__icontains=query) | Q(crop_affected__icontains=query))
+        pests = self.queryset.filter(
+            Q(name__icontains=query) | 
+            Q(scientific_name__icontains=query) | 
+            Q(crop_affected__icontains=query)
+        )
         return Response(self.get_serializer(pests, many=True).data)
 
 
