@@ -15,6 +15,11 @@ class UserAdmin(BaseUserAdmin):
     )
     readonly_fields = ['created_at']
 
+admin.site.register(User)
+admin.site.register(PestDetection)
+admin.site.register(PestInfo)
+admin.site.register(InfestationReport)
+admin.site.register(Farm)
 
 @admin.register(PestDetection)
 class PestDetectionAdmin(admin.ModelAdmin):

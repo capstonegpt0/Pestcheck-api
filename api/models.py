@@ -45,3 +45,12 @@ class PestInfo(models.Model):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+class InfestationReport(models.Model):
+    detection = models.ForeignKey(PestDetection, on_delete=models.CASCADE, related_name='reports')
+    notes = models.TextField(blank=True)
+    verified_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='verified_reports')
+    reported_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Report for {self.detection.id} at {self.reported_at}"
