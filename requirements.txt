@@ -1,22 +1,13 @@
+# D:\Pestcheck\backend\requirements.txt
+
 Django==4.2.7
 djangorestframework==3.14.0
-django-cors-headers==4.3.1
-psycopg2-binary==2.9.9
-pillow==10.1.0
-torch==2.2.0
-torchvision==0.17.0
-opencv-python==4.8.1.78
-numpy==1.24.3
-PyJWT==2.8.0
-python-dotenv==1.0.0
-geopy==2.4.0
-
-# YOLOv5 and ML dependencies
-ultralytics==8.0.228
-pandas==2.1.3
-matplotlib==3.8.2
-seaborn==0.13.0
-scipy>=1.4.1
-tqdm>=4.64.0
-PyYAML>=5.3.1
+django-cors-headers==4.3.0
 djangorestframework-simplejwt==5.3.0
+python-decouple==3.8
+psycopg2-binary==2.9.9
+dj-database-url==2.1.0
+gunicorn==21.2.0
+whitenoise==6.6.0
+Pillow==10.1.0
+requests==2.31.0
