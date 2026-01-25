@@ -75,3 +75,8 @@ class PestInfoSerializer(serializers.ModelSerializer):
     class Meta:
         model = PestInfo
         fields = '__all__'
+
+class InfestationReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InfestationReport
+        fields = '__all__'
