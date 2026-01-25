@@ -17,7 +17,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 
 
-from .models import User, Farm, PestDetection, PestInfo, InfestationReport, Alert, UserActivity
+from .models import User, Farm, PestDetection, PestInfo, InfestationReport
 from .serializers import (
     UserSerializer, RegisterSerializer, LoginSerializer,
     FarmSerializer, PestDetectionSerializer, PestInfoSerializer,
