@@ -169,8 +169,14 @@ class FarmViewSet(viewsets.ModelViewSet):
 
 # ==================== PEST DETECTION VIEWSET ====================
 class PestDetectionViewSet(viewsets.ModelViewSet):
+    queryset = PestDetection.objects.all()
     serializer_class = PestDetectionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
+
+    # Automatically set the user on creation
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+    
 
     def get_queryset(self):
         queryset = PestDetection.objects.all()

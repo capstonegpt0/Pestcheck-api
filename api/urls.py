@@ -14,6 +14,9 @@ from .views import (
     
 )
 
+router = DefaultRouter()
+router.register(r'detections', PestDetectionViewSet, basename='detections')
+
 # User/Farmer Router
 user_router = DefaultRouter()
 user_router.register(r'farms', FarmViewSet, basename='farm')

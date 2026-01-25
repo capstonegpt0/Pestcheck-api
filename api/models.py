@@ -72,7 +72,7 @@ class PestDetection(models.Model):
     farm = models.ForeignKey(Farm, on_delete=models.SET_NULL, null=True, blank=True, related_name='detections')
     image = models.ImageField(upload_to='pest_images/', null=True, blank=True)
     crop_type = models.CharField(max_length=10, choices=CROP_CHOICES)
-    pest_name = models.CharField(max_length=100)
+    pest_name = models.CharField(max_length=255, blank=True)
     pest_type = models.CharField(max_length=200, null=True, blank=True)
     confidence = models.FloatField(default=0.0)
     severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES)

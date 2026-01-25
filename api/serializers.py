@@ -62,11 +62,12 @@ class PestDetectionSerializer(serializers.ModelSerializer):
     farm_name = serializers.CharField(source='farm.name', read_only=True, allow_null=True)
     farm_id = serializers.IntegerField(source='farm.id', read_only=True, allow_null=True)
     pest = serializers.CharField(source='pest_name', read_only=True)
+    pest = serializers.CharField(source='pest_name', read_only=True)
 
     class Meta:
         model = PestDetection
         fields = '__all__'
-        read_only_fields = ['user', 'detected_at', 'verified_by', 'status']
+        read_only_fields = ['user', 'detected_at', 'verified_by', 'status', 'pest_name']
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
