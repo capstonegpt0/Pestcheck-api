@@ -54,17 +54,18 @@ AUTH_USER_MODEL = 'api.User'
 # ================= DATABASE =================
 DATABASE_URL = os.environ.get('DATABASE_URL')
 if not DATABASE_URL:
-    raise ValueError("DATABASE_URL is not set in Render environment variables!")
+    raise ValueError("DATABASE_URL environment variable is not set!")
 
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# Convert postgres:// to postgresql:// if needed
+if DATABASE_URL.startswith('postgres://'):
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
 DATABASES = {
-    "default": dj_database_url.parse(
+    'default': dj_database_url.parse(
         DATABASE_URL,
         conn_max_age=600,
         conn_health_checks=True,
-        ssl_require=True  # ✅ Enforce SSL
+        ssl_require=True  # ✅ ensure SSL for Render Postgres
     )
 }
 
