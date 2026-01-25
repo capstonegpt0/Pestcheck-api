@@ -4,16 +4,14 @@ import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-change-this-in-production')
+# CRITICAL: Use os.environ directly, NOT decouple
+# Decouple can cause issues on Render
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-fallback-key-change-in-production')
+DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False') == 'True'
-
-# Hosts
+# Allowed hosts
 ALLOWED_HOSTS = ['*']
 
-# Render external hostname
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
@@ -66,18 +64,28 @@ TEMPLATES = [
 WSGI_APPLICATION = 'backend.wsgi.application'
 AUTH_USER_MODEL = 'api.User'
 
-# ===== DATABASE CONFIGURATION FOR RENDER =====
-# Print DATABASE_URL for debugging (remove in production)
-print(f"DATABASE_URL environment variable: {os.environ.get('DATABASE_URL', 'NOT SET')}")
+# ===== DATABASE CONFIGURATION =====
+# Print for debugging (remove after deployment works)
+print("\n" + "="*60)
+print("DATABASE CONFIGURATION DEBUG")
+print("="*60)
 
-# Get DATABASE_URL from environment
+# Get DATABASE_URL directly from environment
 DATABASE_URL = os.environ.get('DATABASE_URL')
+print(f"DATABASE_URL environment variable: {'SET' if DATABASE_URL else 'NOT SET'}")
 
 if DATABASE_URL:
-    # Render provides postgres:// but Django 4.x needs postgresql://
+    # Show first part of URL (hide password)
+    url_parts = DATABASE_URL.split('@')
+    if len(url_parts) > 1:
+        print(f"Database host: {url_parts[1][:50]}...")
+    else:
+        print(f"Database URL format: {DATABASE_URL[:30]}...")
+    
+    # Convert postgres:// to postgresql:// if needed
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-        print(f"Converted DATABASE_URL to: {DATABASE_URL[:50]}...")
+        print("Converted postgres:// to postgresql://")
     
     # Parse the database URL
     DATABASES = {
@@ -87,16 +95,27 @@ if DATABASE_URL:
             conn_health_checks=True,
         )
     }
-    print(f"Database host: {DATABASES['default'].get('HOST', 'NOT SET')}")
+    
+    # Verify the parsed configuration
+    db_host = DATABASES['default'].get('HOST', 'NOT SET')
+    print(f"Parsed database HOST: {db_host}")
+    
+    if db_host == 'localhost':
+        print("❌ ERROR: Database HOST is localhost - DATABASE_URL not being used!")
+        print("This will cause connection failures on Render.")
+    else:
+        print("✓ Database configuration looks correct")
+        
 else:
-    # Local development fallback
-    print("WARNING: DATABASE_URL not found, using SQLite")
+    print("⚠ WARNING: DATABASE_URL not set, using SQLite fallback")
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
         }
     }
+
+print("="*60 + "\n")
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -112,7 +131,7 @@ TIME_ZONE = 'Asia/Manila'
 USE_I18N = True
 USE_TZ = True
 
-# Static files (CSS, JavaScript, Images)
+# Static files
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
@@ -121,7 +140,6 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # REST Framework
@@ -152,7 +170,6 @@ CORS_ALLOWED_ORIGINS = [
     "https://pestcheck.netlify.app",
 ]
 
-# Add Render backend URL if available
 if RENDER_EXTERNAL_HOSTNAME:
     CORS_ALLOWED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
 
@@ -181,12 +198,6 @@ LOGGING = {
     'root': {
         'handlers': ['console'],
         'level': 'INFO',
-    },
-    'loggers': {
-        'django.db.backends': {
-            'level': 'DEBUG',
-            'handlers': ['console'],
-        },
     },
 }
 
