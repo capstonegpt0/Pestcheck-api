@@ -7,7 +7,11 @@ from .views import (
     # Admin ViewSets
     AdminUserManagementViewSet, AdminFarmManagementViewSet, 
     AdminDetectionManagementViewSet, AdminPestInfoManagementViewSet,
-    AdminAlertManagementViewSet, AdminActivityLogViewSet
+    AdminAlertManagementViewSet, AdminActivityLogViewSet,
+    
+    DetectionListCreateAPIView, DetectionStatisticsAPIView
+    
+    
 )
 
 # User/Farmer Router
@@ -33,8 +37,12 @@ urlpatterns = [
     path('auth/logout/', logout_view, name='logout'),
     path('auth/profile/', user_profile, name='profile'),
     
+    path('detections/', DetectionListCreateAPIView.as_view(), name='detections'),
+    path('detections/statistics/', DetectionStatisticsAPIView.as_view(), name='detections-statistics'),
+    
     # User/Farmer endpoints
     path('', include(user_router.urls)),
+    
     
     # Admin endpoints
     path('admin/', include(admin_router.urls)),

@@ -6,11 +6,16 @@ from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Count, Q
 
-from rest_framework import viewsets, status
+from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser, FormParser
+from .models import PestDetection, Farm
+from .serializers import PestDetectionSerializer
+from rest_framework import viewsets, status, generics, permissions
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
+
 
 from .models import User, Farm, PestDetection, PestInfo, InfestationReport, Alert, UserActivity
 from .serializers import (
@@ -357,6 +362,42 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         by_pest = list(queryset.values('pest_name').annotate(count=Count('id')).order_by('-count')[:5])
         return Response({'total_detections': queryset.count(), 'by_severity': by_severity, 'by_crop': by_crop, 'by_pest': by_pest})
 
+
+class DetectionListCreateAPIView(generics.ListCreateAPIView):
+    serializer_class = PestDetectionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        user = self.request.user
+        my_detections = self.request.query_params.get('my_detections', None)
+        queryset = PestDetection.objects.all().order_by('-detected_at')
+        if my_detections == 'true':
+            queryset = queryset.filter(user=user)
+        return queryset
+
+    def perform_create(self, serializer):
+        farm_id = self.request.data.get('farm_id')
+        farm = None
+        if farm_id:
+            try:
+                farm = Farm.objects.get(id=farm_id)
+            except Farm.DoesNotExist:
+                pass
+        serializer.save(user=self.request.user, farm=farm)
+
+class DetectionStatisticsAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        total = PestDetection.objects.count()
+        verified = PestDetection.objects.filter(status='verified').count()
+        unverified = total - verified
+        return Response({
+            'total': total,
+            'verified': verified,
+            'unverified': unverified,
+        })
 
 # ==================== PEST INFO VIEWSET ====================
 class PestInfoViewSet(viewsets.ReadOnlyModelViewSet):
