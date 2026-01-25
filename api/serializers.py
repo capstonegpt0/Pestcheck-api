@@ -7,6 +7,7 @@ from .models import (
     PestInfo,
     InfestationReport,
     UserActivity,
+    Alert
 )
 
 class PestInfoSerializer(serializers.ModelSerializer):
@@ -87,3 +88,8 @@ class InfestationReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = InfestationReport
         fields = '__all__'
+        
+class AlertSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Alert
+        fields = "__all__"
