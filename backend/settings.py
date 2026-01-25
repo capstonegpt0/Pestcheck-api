@@ -36,16 +36,19 @@ INSTALLED_APPS = [
 
 # ================= MIDDLEWARE =================
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # MUST BE FIRST
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
 
 ROOT_URLCONF = 'backend.urls'
 WSGI_APPLICATION = 'backend.wsgi.application'
@@ -113,17 +116,26 @@ SIMPLE_JWT = {
 }
 
 # ================= CORS / CSRF =================
+CORS_ALLOW_ALL_ORIGINS = False
+
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:5173",
     "https://pestcheck.netlify.app",
 ]
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "https://pestcheck.netlify.app",
-    "https://*.onrender.com",
+
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
 ]
+
 
 if RENDER_EXTERNAL_HOSTNAME:
     CORS_ALLOWED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")

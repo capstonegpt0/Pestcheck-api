@@ -41,11 +41,11 @@ INSTALLED_APPS = [
 # MIDDLEWARE
 # =========================
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',  # MUST BE FIRST
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
 
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
 
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -53,6 +53,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
 
 # =========================
 # URL / WSGI
@@ -129,12 +130,26 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # =========================
 # CORS
 # =========================
+CORS_ALLOW_ALL_ORIGINS = False
+
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    "https://pestcheck.netlify.app",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
 
 # =========================
 # DRF & JWT
