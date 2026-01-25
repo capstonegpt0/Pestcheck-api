@@ -72,47 +72,30 @@ print("="*60)
 
 # Get DATABASE_URL directly from environment
 DATABASE_URL = os.environ.get('DATABASE_URL')
-print(f"DATABASE_URL environment variable: {'SET' if DATABASE_URL else 'NOT SET'}")
 
-if DATABASE_URL:
-    # Show first part of URL (hide password)
-    url_parts = DATABASE_URL.split('@')
-    if len(url_parts) > 1:
-        print(f"Database host: {url_parts[1][:50]}...")
-    else:
-        print(f"Database URL format: {DATABASE_URL[:30]}...")
-    
-    # Convert postgres:// to postgresql:// if needed
-    if DATABASE_URL.startswith('postgres://'):
-        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
-        print("Converted postgres:// to postgresql://")
-    
-    # Parse the database URL
-    DATABASES = {
-        'default': dj_database_url.parse(
-            DATABASE_URL,
-            conn_max_age=600,
-            conn_health_checks=True,
-        )
-    }
-    
-    # Verify the parsed configuration
-    db_host = DATABASES['default'].get('HOST', 'NOT SET')
-    print(f"Parsed database HOST: {db_host}")
-    
-    if db_host == 'localhost':
-        print("❌ ERROR: Database HOST is localhost - DATABASE_URL not being used!")
-        print("This will cause connection failures on Render.")
-    else:
-        print("✓ Database configuration looks correct")
-        
-else:
+if not DATABASE_URL:
+    # Fallback (only for local dev)
     print("⚠ WARNING: DATABASE_URL not set, using SQLite fallback")
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
         }
+    }
+else:
+    # Convert old postgres:// URLs to postgresql://
+    if DATABASE_URL.startswith('postgres://'):
+        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+        print("Converted postgres:// to postgresql://")
+
+    # Parse the database URL with SSL enabled
+    DATABASES = {
+        'default': dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+            ssl_require=True  # Ensures secure connection to Render Postgres
+        )
     }
 
 print("="*60 + "\n")
