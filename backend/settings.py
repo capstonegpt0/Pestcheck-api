@@ -1,24 +1,25 @@
+# D:\Pestcheck\backend\backend\settings.py
+
 import os
 from pathlib import Path
-from decouple import config
 import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Security Settings
-SECRET_KEY = config('SECRET_KEY')
-DEBUG = config('DEBUG', default=False, cast=bool)
+# Security
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-temp-key-change-this')
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-# Updated ALLOWED_HOSTS for Render
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='').split(',')
+# Hosts
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
 if not ALLOWED_HOSTS or ALLOWED_HOSTS == ['']:
     ALLOWED_HOSTS = [
         'localhost',
         '127.0.0.1',
-        '.onrender.com',  # Allow all Render domains
+        'pestcheck-api.onrender.com',
+        '.onrender.com',
     ]
 
-# Get the Render external URL
 RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
 if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
@@ -35,7 +36,7 @@ INSTALLED_APPS = [
     # Third party
     'rest_framework',
     'rest_framework_simplejwt',
-    'rest_framework_simplejwt.token_blacklist',  # Add this for token blacklisting
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     
     # Your apps
@@ -73,16 +74,16 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'backend.wsgi.application'
-
-# Custom User Model
 AUTH_USER_MODEL = 'api.User'
 
-# Database Configuration
-# Render provides DATABASE_URL automatically, fallback to individual vars
+# Database
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 if DATABASE_URL:
-    # Use DATABASE_URL if available (Render provides this)
+    # Fix postgres:// to postgresql://
+    if DATABASE_URL.startswith('postgres://'):
+        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    
     DATABASES = {
         'default': dj_database_url.config(
             default=DATABASE_URL,
@@ -91,53 +92,44 @@ if DATABASE_URL:
         )
     }
 else:
-    # Fallback to individual environment variables
+    # Local fallback
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('PGDATABASE', 'pestcheck'),
-            'USER': os.environ.get('PGUSER', 'postgres'),
-            'PASSWORD': os.environ.get('PGPASSWORD', ''),
-            'HOST': os.environ.get('PGHOST', 'localhost'),
-            'PORT': os.environ.get('PGPORT', '5432'),
+            'NAME': 'pestcheck',
+            'USER': 'postgres',
+            'PASSWORD': '',
+            'HOST': 'localhost',
+            'PORT': '5432',
         }
     }
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Manila'  # Philippines timezone
 USE_I18N = True
 USE_TZ = True
 
-# Static Files Configuration
+# Static Files
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Media Files (for image uploads)
+# Media Files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# REST Framework Configuration
+# REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -158,17 +150,12 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': True,
 }
 
-# CORS Settings - Updated for production
+# CORS Settings - IMPORTANT!
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
-    "https://pestcheck.netlify.app",
+    "https://pestcheck.netlify.app",  # Your frontend!
 ]
-
-# Add your Render backend URL when you get it
-RENDER_BACKEND_URL = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
-if RENDER_BACKEND_URL:
-    CORS_ALLOWED_ORIGINS.append(f"https://{RENDER_BACKEND_URL}")
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -176,12 +163,9 @@ CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
-    "https://pestcheck.netlify.app",
+    "https://pestcheck.netlify.app",  # Your frontend!
+    "https://pestcheck-api.onrender.com",  # Your backend!
 ]
-
-# Add Render URLs
-if RENDER_EXTERNAL_HOSTNAME:
-    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
 
 # Security Settings for Production
 if not DEBUG:

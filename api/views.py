@@ -1,19 +1,25 @@
+import os
+import tempfile
+import requests
+from datetime import timedelta
+from django.utils import timezone
+from django.db.models import Count, Q
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth import login, logout
-from django.db.models import Count, Q
-from django.utils import timezone
-from datetime import timedelta
+
 from .models import User, Farm, PestDetection, PestInfo, InfestationReport, Alert, UserActivity
-from .serializers import (UserSerializer, RegisterSerializer, LoginSerializer,
-                          FarmSerializer, PestDetectionSerializer, PestInfoSerializer,
-                          InfestationReportSerializer, AlertSerializer, UserActivitySerializer)
+from .serializers import (
+    UserSerializer, RegisterSerializer, LoginSerializer,
+    FarmSerializer, PestDetectionSerializer, PestInfoSerializer,
+    InfestationReportSerializer, AlertSerializer, UserActivitySerializer
+)
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin, IsExpertOrAdmin
 
-# Magalang, Pampanga bounds
+# ==================== CONSTANTS ====================
 MAGALANG_BOUNDS = {
     'north': 15.2547,
     'south': 15.1547,
@@ -21,30 +27,81 @@ MAGALANG_BOUNDS = {
     'west': 120.5447
 }
 
+#HUGGINGFACE_API_URL = os.environ.get("HUGGINGFACE_ML_URL")
+#UGGINGFACE_API_TOKEN = os.environ.get("HUGGINGFACE_ML_TOKEN")
+# Use your local ML service for testing
+HUGGINGFACE_API_URL = "http://127.0.0.1:7860/detect"
+HUGGINGFACE_API_TOKEN = None  # no token needed for local
+
+
+
+# ==================== HELPER FUNCTIONS ====================
 def get_tokens_for_user(user):
     refresh = RefreshToken.for_user(user)
-    return {
-        'refresh': str(refresh),
-        'access': str(refresh.access_token),
-    }
+    return {'refresh': str(refresh), 'access': str(refresh.access_token)}
+
 
 def log_activity(user, action, details='', request=None):
-    """Helper function to log user activities"""
     ip_address = None
     if request:
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip_address = x_forwarded_for.split(',')[0]
-        else:
-            ip_address = request.META.get('REMOTE_ADDR')
-    
-    UserActivity.objects.create(
-        user=user,
-        action=action,
-        details=details,
-        ip_address=ip_address
-    )
+        ip_address = x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR')
+    UserActivity.objects.create(user=user, action=action, details=details, ip_address=ip_address)
 
+
+#def call_ml_api(image_path, crop_type='rice'):
+ #   """
+  #  Sends the image to Hugging Face ML endpoint and returns parsed result.
+   # """
+    #with open(image_path, "rb") as f:
+     #   files = {"file": f}
+      #  data = {"crop_type": crop_type}
+       # headers = {"Authorization": f"Bearer {HUGGINGFACE_API_TOKEN}"} if HUGGINGFACE_API_TOKEN else {}
+        #response = requests.post(HUGGINGFACE_API_URL, files=files, data=data, headers=headers)
+
+  #  if response.status_code != 200:
+   #     raise Exception(f"ML API failed: {response.status_code} {response.text}")
+    
+    #return response.json()
+    
+    # ==================== ML SERVICE CONFIGURATION ====================
+HUGGINGFACE_ML_URL = os.environ.get(
+    'HUGGINGFACE_ML_URL', 
+    'https://capstonegpt0-pestcheck-ml.hf.space'
+)
+
+def call_ml_api(image_path, crop_type='rice'):
+    """
+    Sends image to HuggingFace ML service and returns detection results
+    """
+    try:
+        with open(image_path, "rb") as f:
+            files = {"image": f}
+            data = {"crop_type": crop_type}
+            
+            # Call HuggingFace ML service
+            response = requests.post(
+                f"{HUGGINGFACE_ML_URL}/detect",
+                files=files,
+                data=data,
+                timeout=120  # HuggingFace can be slow on cold start
+            )
+        
+        if response.status_code != 200:
+            raise Exception(f"ML API failed: {response.status_code} - {response.text}")
+        
+        return response.json()
+    
+    except requests.exceptions.Timeout:
+        raise Exception("ML service timeout. HuggingFace might be starting up. Please try again in 30 seconds.")
+    except requests.exceptions.ConnectionError:
+        raise Exception("Cannot connect to HuggingFace ML service. Please check if the service is running.")
+    except Exception as e:
+        raise Exception(f"ML API error: {str(e)}")
+
+    
+
+# ==================== AUTHENTICATION VIEWS ====================
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register_view(request):
@@ -53,11 +110,9 @@ def register_view(request):
         user = serializer.save()
         tokens = get_tokens_for_user(user)
         log_activity(user, 'user_registered', request=request)
-        return Response({
-            'user': UserSerializer(user).data,
-            'tokens': tokens
-        }, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'user': UserSerializer(user).data, 'tokens': tokens}, status=201)
+    return Response(serializer.errors, status=400)
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -67,11 +122,9 @@ def login_view(request):
         user = serializer.validated_data
         tokens = get_tokens_for_user(user)
         log_activity(user, 'user_logged_in', request=request)
-        return Response({
-            'user': UserSerializer(user).data,
-            'tokens': tokens
-        })
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'user': UserSerializer(user).data, 'tokens': tokens})
+    return Response(serializer.errors, status=400)
+
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -83,105 +136,70 @@ def logout_view(request):
         log_activity(request.user, 'user_logged_out', request=request)
         return Response({'message': 'Logout successful'})
     except Exception as e:
-        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error': str(e)}, status=400)
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def user_profile(request):
-    serializer = UserSerializer(request.user)
-    return Response(serializer.data)
+    return Response(UserSerializer(request.user).data)
 
-# ==================== FARMER/USER VIEWSETS ====================
 
+# ==================== FARM VIEWSET ====================
 class FarmViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing farms - Farmers can CRUD their own farms"""
     serializer_class = FarmSerializer
     permission_classes = [IsAuthenticated, IsFarmerOrAdmin]
-    http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
-    
+
     def get_queryset(self):
         if self.request.user.role == 'admin':
             return Farm.objects.all()
         return Farm.objects.filter(user=self.request.user)
-    
+
     def perform_create(self, serializer):
         farm = serializer.save(user=self.request.user)
         log_activity(self.request.user, 'created_farm', f'Farm: {farm.name}', self.request)
 
+
+# ==================== PEST DETECTION VIEWSET ====================
 class PestDetectionViewSet(viewsets.ModelViewSet):
-    """ViewSet for pest detections - Users can view/create, Admins can verify"""
-    queryset = PestDetection.objects.all()
     serializer_class = PestDetectionSerializer
     permission_classes = [IsAuthenticated]
-    http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
-    
+
     def get_queryset(self):
-        queryset = super().get_queryset()
-        
-        # Admins see everything
-        if self.request.user.role == 'admin':
-            # Filter by geofence (Magalang, Pampanga)
-            queryset = queryset.filter(
-                latitude__gte=MAGALANG_BOUNDS['south'],
-                latitude__lte=MAGALANG_BOUNDS['north'],
-                longitude__gte=MAGALANG_BOUNDS['west'],
-                longitude__lte=MAGALANG_BOUNDS['east']
-            )
-        else:
-            # Farmers see their own detections (all statuses) OR verified detections from others
-            queryset = queryset.filter(
-                Q(user=self.request.user) | Q(status='verified')
-            )
-            
-            # Filter by geofence (Magalang, Pampanga)
-            queryset = queryset.filter(
-                latitude__gte=MAGALANG_BOUNDS['south'],
-                latitude__lte=MAGALANG_BOUNDS['north'],
-                longitude__gte=MAGALANG_BOUNDS['west'],
-                longitude__lte=MAGALANG_BOUNDS['east']
-            )
-        
-        # Filter by user if requested (for "my detections" view)
+        queryset = PestDetection.objects.all()
+        if self.request.user.role != 'admin':
+            queryset = queryset.filter(Q(user=self.request.user) | Q(status='verified'))
+
+        # Geofence filter
+        queryset = queryset.filter(
+            latitude__gte=MAGALANG_BOUNDS['south'],
+            latitude__lte=MAGALANG_BOUNDS['north'],
+            longitude__gte=MAGALANG_BOUNDS['west'],
+            longitude__lte=MAGALANG_BOUNDS['east']
+        )
+
+        # Optional filters
         if self.request.query_params.get('my_detections'):
             queryset = queryset.filter(user=self.request.user)
-        
-        # Get page_size parameter for pagination
+
         page_size = self.request.query_params.get('page_size')
-        if page_size:
+        if page_size and hasattr(self.pagination_class, 'page_size'):
             self.pagination_class.page_size = int(page_size)
-        
+
         return queryset
-    
-    def create(self, request):
-        print("\n" + "=" * 70)
-        print("PEST DETECTION REQUEST")
-        print("=" * 70)
-        print(f"User: {request.user}")
-        print(f"Files: {list(request.FILES.keys())}")
-        print(f"Data keys: {list(request.data.keys())}")
-        
-        # Check if this is a manual report (from HeatMap) or image detection
-        if 'image' not in request.FILES:
-            print("→ Manual infestation report (no image)")
-            
-            try:
-                lat = float(request.data.get('latitude', 0))
-                lng = float(request.data.get('longitude', 0))
-            except (ValueError, TypeError):
-                return Response({
-                    'error': 'Invalid latitude or longitude'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            farm_id = request.data.get('farm_id')
+
+    def create_manual_detection(self, request):
+        """
+        Handles manual detection (without image)
+        """
+        try:
+            lat = float(request.data.get('latitude', 0))
+            lng = float(request.data.get('longitude', 0))
             farm = None
+            farm_id = request.data.get('farm_id')
             if farm_id:
-                try:
-                    farm = Farm.objects.get(id=farm_id, user=request.user)
-                except Farm.DoesNotExist:
-                    return Response({
-                        'error': 'Farm not found or does not belong to you'
-                    }, status=status.HTTP_400_BAD_REQUEST)
-            
+                farm = Farm.objects.filter(id=farm_id, user=request.user).first()
+
             detection = PestDetection.objects.create(
                 user=request.user,
                 farm=farm,
@@ -199,112 +217,49 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 detected_at=timezone.now(),
                 reported_at=timezone.now()
             )
-            
-            print(f"✓ Manual detection created: ID={detection.id}")
             log_activity(request.user, 'reported_infestation', f'Pest: {detection.pest_name}', request)
-            
-            # Return properly serialized response
             serializer = self.get_serializer(detection)
             response_data = serializer.data
-            
-            # Ensure farm_id is included in response
             response_data['farm_id'] = farm.id if farm else None
-            
-            print(f"Response data: {response_data}")
-            print("=" * 70)
-            
-            return Response(response_data, status=status.HTTP_201_CREATED)
-        
-        # Image-based detection
-        print("→ Image-based detection")
-        
+            return Response(response_data, status=201)
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+
+    def create(self, request):
+        """
+        Handles detection via ML API or manual fallback
+        """
+        if 'image' not in request.FILES:
+            return self.create_manual_detection(request)
+
         temp_path = None
         try:
             lat = float(request.data.get('latitude', 0))
             lng = float(request.data.get('longitude', 0))
             crop_type = request.data.get('crop_type', 'rice')
-            
-            print(f"Location: ({lat}, {lng})")
-            print(f"Crop: {crop_type}")
-            
-            # Validate location (lenient for testing)
-            in_bounds = (MAGALANG_BOUNDS['south'] <= lat <= MAGALANG_BOUNDS['north'] and
-                        MAGALANG_BOUNDS['west'] <= lng <= MAGALANG_BOUNDS['east'])
-            
-            if not in_bounds:
-                print(f"⚠ WARNING: Location outside Magalang bounds")
-                print(f"  Bounds: {MAGALANG_BOUNDS}")
-                print(f"  Received: lat={lat}, lng={lng}")
-            
             image = request.FILES.get('image')
+
             if not image:
-                return Response({'error': 'No image provided'}, status=status.HTTP_400_BAD_REQUEST)
-            
-            print(f"Image: {image.name} ({image.size} bytes)")
-            
-            # Save image temporarily
-            import tempfile
-            import os
-            
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+                return Response({'error': 'No image provided'}, status=400)
+
+            # Save temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_file:
                 for chunk in image.chunks():
-                    temp_file.write(chunk)
-                temp_path = temp_file.name
-            
-            print(f"Temp file: {temp_path}")
-            
-            # Try to use ML model
-            try:
-                from .ml_model import analyze_pest_image
-                print("→ Running ML detection...")
-                analysis = analyze_pest_image(temp_path, crop_type=crop_type)
-                print(f"✓ Detection complete: {analysis.get('pest_name')}")
-            except ImportError as e:
-                print(f"⚠ ML model not available: {e}")
-                print("→ Using mock detection")
-                analysis = {
-                    'success': True,
-                    'pest_name': 'Brown Planthopper' if crop_type == 'rice' else 'Armyworm',
-                    'scientific_name': 'Nilaparvata lugens' if crop_type == 'rice' else 'Spodoptera frugiperda',
-                    'confidence': 0.85,
-                    'severity': 'medium',
-                    'crop_type': crop_type,
-                    'symptoms': 'Yellow-orange discoloration of leaves' if crop_type == 'rice' else 'Window-paning on leaves',
-                    'control_methods': ['Apply appropriate insecticides', 'Use biological control methods'],
-                    'prevention': ['Maintain field sanitation', 'Regular monitoring'],
-                    'num_detections': 1
-                }
-            except Exception as e:
-                print(f"⚠ ML detection error: {e}")
-                import traceback
-                traceback.print_exc()
-                analysis = {
-                    'success': True,
-                    'pest_name': 'Brown Planthopper' if crop_type == 'rice' else 'Armyworm',
-                    'scientific_name': 'Nilaparvata lugens' if crop_type == 'rice' else 'Spodoptera frugiperda',
-                    'confidence': 0.75,
-                    'severity': 'medium',
-                    'crop_type': crop_type,
-                    'symptoms': 'Pest damage detected on crop',
-                    'control_methods': ['Consult agricultural expert', 'Apply appropriate treatments'],
-                    'prevention': ['Regular field inspection'],
-                    'num_detections': 1
-                }
-            
-            if not analysis.get('success', False):
-                return Response({
-                    'error': analysis.get('message', 'Detection failed')
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Create detection record
+                    tmp_file.write(chunk)
+                temp_path = tmp_file.name
+
+            # Call Hugging Face ML API
+            analysis = call_ml_api(temp_path, crop_type=crop_type)
+
+            # Save detection
             detection = PestDetection.objects.create(
                 user=request.user,
                 image=image,
                 crop_type=crop_type,
-                pest_name=analysis['pest_name'],
+                pest_name=analysis.get('pest_name', ''),
                 pest_type=analysis.get('pest_key', ''),
-                confidence=analysis['confidence'],
-                severity=analysis['severity'],
+                confidence=analysis.get('confidence', 0.0),
+                severity=analysis.get('severity', 'low'),
                 latitude=lat,
                 longitude=lng,
                 address=request.data.get('address', ''),
@@ -312,217 +267,108 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 status='pending',
                 detected_at=timezone.now()
             )
-            
-            print(f"✓ Detection saved: ID={detection.id}")
-            
-            log_activity(request.user, 'detected_pest', f'Pest: {detection.pest_name}', request)
-            
-            # Return detailed response
+            log_activity(request.user, 'detected_pest', f"Pest: {detection.pest_name}", request)
+
+            # Return enriched response
             serializer = self.get_serializer(detection)
             response_data = serializer.data
-            response_data['scientific_name'] = analysis.get('scientific_name', '')
-            response_data['symptoms'] = analysis.get('symptoms', '')
-            response_data['control_methods'] = analysis.get('control_methods', [])
-            response_data['prevention'] = analysis.get('prevention', [])
-            response_data['num_detections'] = analysis.get('num_detections', 1)
-            
-            print("=" * 70)
-            return Response(response_data, status=status.HTTP_201_CREATED)
-                    
-        except ValueError as e:
-            print(f"✗ ValueError: {e}")
-            return Response({'error': f'Invalid data: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+            response_data.update({
+                'scientific_name': analysis.get('scientific_name', ''),
+                'symptoms': analysis.get('symptoms', ''),
+                'control_methods': analysis.get('control_methods', []),
+                'prevention': analysis.get('prevention', []),
+                'num_detections': analysis.get('num_detections', 1)
+            })
+            return Response(response_data, status=201)
+
         except Exception as e:
-            print(f"✗ Exception: {e}")
-            import traceback
-            traceback.print_exc()
-            return Response({
-                'error': f'Detection processing failed: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': f'Detection failed: {str(e)}'}, status=500)
         finally:
-            # Clean up temp file
-            import os
             if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                    print(f"✓ Cleaned up temp file: {temp_path}")
-                except Exception as e:
-                    print(f"⚠ Failed to clean up temp file: {e}")
-    
+                os.remove(temp_path)
+
+
+    # ==================== PATCH/UPDATE ====================
     def partial_update(self, request, *args, **kwargs):
-        """Handle PATCH requests for resolving infestations"""
-        print("\n" + "=" * 70)
-        print("PATCH REQUEST - UPDATING DETECTION")
-        print("=" * 70)
-        print(f"User: {request.user}")
-        print(f"User role: {request.user.role}")
-        print(f"Detection ID: {kwargs.get('pk')}")
-        print(f"Data: {request.data}")
-        
+        detection_id = kwargs.get('pk')
         try:
-            # Get the detection without filtering
-            # This ensures we can access it even if get_queryset() would filter it out
-            detection_id = kwargs.get('pk')
-            try:
-                instance = PestDetection.objects.get(id=detection_id)
-            except PestDetection.DoesNotExist:
-                print(f"✗ Detection {detection_id} does not exist in database")
-                return Response({
-                    'error': f'Detection with ID {detection_id} not found'
-                }, status=status.HTTP_404_NOT_FOUND)
-            
-            print(f"Found detection: ID={instance.id}, User={instance.user.username}, Status={instance.status}")
-            print(f"Current active: {instance.active}")
-            
-            # Only owner or admin can update
+            instance = PestDetection.objects.get(id=detection_id)
             if instance.user != request.user and request.user.role != 'admin':
-                print(f"✗ Permission denied: detection belongs to {instance.user.username}, requester is {request.user.username}")
-                return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
-            
-            print("✓ Permission check passed")
-            
-            # Update fields
+                return Response({'error': 'Permission denied'}, status=403)
+
             if 'active' in request.data:
                 instance.active = request.data['active']
-                print(f"→ Setting active to: {instance.active}")
-            
             if 'status' in request.data:
                 instance.status = request.data['status']
-                print(f"→ Setting status to: {instance.status}")
-            
-            # If being resolved, set resolved_at timestamp
             if not instance.active or instance.status == 'resolved':
                 instance.resolved_at = timezone.now()
                 instance.status = 'resolved'
-                print(f"→ Marking as resolved at: {instance.resolved_at}")
-            
             instance.save()
-            print(f"✓ Detection updated successfully")
-            
             log_activity(request.user, 'updated_detection', f'Detection ID: {instance.id}', request)
-            
-            serializer = self.get_serializer(instance)
-            print("=" * 70)
-            return Response(serializer.data)
-            
-        except Exception as e:
-            print(f"✗ Error updating detection: {e}")
-            import traceback
-            traceback.print_exc()
-            print("=" * 70)
-            return Response({
-                'error': f'Failed to update detection: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+            return Response(self.get_serializer(instance).data)
+        except PestDetection.DoesNotExist:
+            return Response({'error': 'Detection not found'}, status=404)
+
     def update(self, request, *args, **kwargs):
-        """Handle PUT requests - same as PATCH for this endpoint"""
         return self.partial_update(request, *args, **kwargs)
-    
+
+    # ==================== EXTRA ACTIONS ====================
     @action(detail=False, methods=['get'])
     def heatmap_data(self, request):
-        """Get data for heatmap visualization"""
         days = int(request.query_params.get('days', 30))
         since = timezone.now() - timedelta(days=days)
-        
-        # Get all detections for the user (or all if admin)
-        if request.user.role == 'admin':
-            queryset = PestDetection.objects.all()
-        else:
-            queryset = PestDetection.objects.filter(
-                Q(user=request.user) | Q(status='verified')
-            )
-        
-        # Filter by date and active status
-        queryset = queryset.filter(
-            active=True
-        )
-        
-        # Apply date filter - use detected_at OR reported_at
-        queryset = queryset.filter(
-            Q(detected_at__gte=since) | Q(reported_at__gte=since)
-        )
-        
-        heatmap_points = []
-        for detection in queryset:
-            heatmap_points.append({
-                'id': detection.id,
-                'pest': detection.pest_name or detection.pest_type,
-                'severity': detection.severity,
-                'lat': detection.latitude,
-                'lng': detection.longitude,
-                'farm_id': detection.farm_id,
-                'reported_at': (detection.reported_at or detection.detected_at).isoformat() if (detection.reported_at or detection.detected_at) else timezone.now().isoformat(),
-                'active': detection.active,
-                'status': detection.status
-            })
-        
+        queryset = PestDetection.objects.all() if request.user.role == 'admin' else PestDetection.objects.filter(Q(user=request.user) | Q(status='verified'))
+        queryset = queryset.filter(active=True).filter(Q(detected_at__gte=since) | Q(reported_at__gte=since))
+        heatmap_points = [{
+            'id': det.id,
+            'pest': det.pest_name or det.pest_type,
+            'severity': det.severity,
+            'lat': det.latitude,
+            'lng': det.longitude,
+            'farm_id': det.farm_id,
+            'reported_at': (det.reported_at or det.detected_at).isoformat(),
+            'active': det.active,
+            'status': det.status
+        } for det in queryset]
         return Response(heatmap_points)
-    
+
     @action(detail=False, methods=['get'])
     def statistics(self, request):
-        """Get detection statistics for dashboard"""
         queryset = self.get_queryset().filter(user=request.user)
-        
-        # By severity
-        by_severity = {
-            'low': queryset.filter(severity='low').count(),
-            'medium': queryset.filter(severity='medium').count(),
-            'high': queryset.filter(severity='high').count(),
-            'critical': queryset.filter(severity='critical').count(),
-        }
-        
-        # By crop
-        by_crop = {
-            'rice': queryset.filter(crop_type='rice').count(),
-            'corn': queryset.filter(crop_type='corn').count(),
-        }
-        
-        # By pest (top pests)
-        by_pest = list(
-            queryset.values('pest_name')
-            .annotate(count=Count('id'))
-            .order_by('-count')[:5]
-        )
-        
-        stats = {
-            'total_detections': queryset.count(),
-            'by_severity': by_severity,
-            'by_crop': by_crop,
-            'by_pest': by_pest,
-        }
-        
-        return Response(stats)
+        by_severity = {s: queryset.filter(severity=s).count() for s in ['low','medium','high','critical']}
+        by_crop = {c: queryset.filter(crop_type=c).count() for c in ['rice','corn']}
+        by_pest = list(queryset.values('pest_name').annotate(count=Count('id')).order_by('-count')[:5])
+        return Response({'total_detections': queryset.count(), 'by_severity': by_severity, 'by_crop': by_crop, 'by_pest': by_pest})
 
+
+# ==================== PEST INFO VIEWSET ====================
 class PestInfoViewSet(viewsets.ReadOnlyModelViewSet):
-    """Pest information - Read only for users"""
     queryset = PestInfo.objects.filter(is_published=True)
     serializer_class = PestInfoSerializer
     permission_classes = [IsAuthenticated]
-    
+
     @action(detail=False, methods=['get'])
     def search(self, request):
         query = request.query_params.get('q', '')
-        pests = self.queryset.filter(
-            Q(name__icontains=query) | 
-            Q(scientific_name__icontains=query) |
-            Q(crop_affected__icontains=query)
-        )
-        serializer = self.get_serializer(pests, many=True)
-        return Response(serializer.data)
+        pests = self.queryset.filter(Q(name__icontains=query) | Q(scientific_name__icontains=query) | Q(crop_affected__icontains=query))
+        return Response(self.get_serializer(pests, many=True).data)
 
+
+# ==================== ALERT VIEWSET ====================
 class AlertViewSet(viewsets.ReadOnlyModelViewSet):
-    """Alerts - Read only for users, managed by admin"""
     serializer_class = AlertSerializer
     permission_classes = [IsAuthenticated]
-    
+
     def get_queryset(self):
-        return Alert.objects.filter(
-            is_active=True,
-            expires_at__gte=timezone.now()
-        ) | Alert.objects.filter(
-            is_active=True,
-            expires_at__isnull=True
-        )
+        now = timezone.now()
+        return Alert.objects.filter(Q(is_active=True, expires_at__gte=now) | Q(is_active=True, expires_at__isnull=True))
+
+
+# ==================== ADMIN VIEWSETS ====================
+# AdminUserManagementViewSet, AdminFarmManagementViewSet, AdminDetectionManagementViewSet,
+# AdminPestInfoManagementViewSet, AdminAlertManagementViewSet, AdminActivityLogViewSet
+# -- Keep your existing implementations; they remain unchanged.
+
 
 # ==================== ADMIN-ONLY VIEWSETS ====================
 
