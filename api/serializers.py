@@ -2,6 +2,11 @@ from rest_framework import serializers
 from django.contrib.auth import authenticate
 from .models import User, Farm, PestDetection, PestInfo
 
+class PestInfoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PestInfo
+        fields = '__all__'
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
