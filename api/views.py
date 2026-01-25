@@ -1,6 +1,7 @@
 import os
 import tempfile
 import requests
+import time
 from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Count, Q
@@ -27,13 +28,10 @@ MAGALANG_BOUNDS = {
     'west': 120.5447
 }
 
-#HUGGINGFACE_API_URL = os.environ.get("HUGGINGFACE_ML_URL")
-#UGGINGFACE_API_TOKEN = os.environ.get("HUGGINGFACE_ML_TOKEN")
-# Use your local ML service for testing
-HUGGINGFACE_API_URL = "http://127.0.0.1:7860/detect"
-HUGGINGFACE_API_TOKEN = None  # no token needed for local
-
-
+HUGGINGFACE_ML_URL = os.environ.get(
+    'HUGGINGFACE_ML_URL', 
+    'https://capstonegpt0-pestcheck-ml.hf.space'
+)
 
 # ==================== HELPER FUNCTIONS ====================
 def get_tokens_for_user(user):
@@ -49,57 +47,61 @@ def log_activity(user, action, details='', request=None):
     UserActivity.objects.create(user=user, action=action, details=details, ip_address=ip_address)
 
 
-#def call_ml_api(image_path, crop_type='rice'):
- #   """
-  #  Sends the image to Hugging Face ML endpoint and returns parsed result.
-   # """
-    #with open(image_path, "rb") as f:
-     #   files = {"file": f}
-      #  data = {"crop_type": crop_type}
-       # headers = {"Authorization": f"Bearer {HUGGINGFACE_API_TOKEN}"} if HUGGINGFACE_API_TOKEN else {}
-        #response = requests.post(HUGGINGFACE_API_URL, files=files, data=data, headers=headers)
-
-  #  if response.status_code != 200:
-   #     raise Exception(f"ML API failed: {response.status_code} {response.text}")
-    
-    #return response.json()
-    
-    # ==================== ML SERVICE CONFIGURATION ====================
-HUGGINGFACE_ML_URL = os.environ.get(
-    'HUGGINGFACE_ML_URL', 
-    'https://capstonegpt0-pestcheck-ml.hf.space'
-)
-
-def call_ml_api(image_path, crop_type='rice'):
+def call_ml_api(image_path, crop_type='rice', max_retries=3):
     """
-    Sends image to HuggingFace ML service and returns detection results
+    Sends image to HuggingFace ML service with retry logic
     """
-    try:
-        with open(image_path, "rb") as f:
-            files = {"image": f}
-            data = {"crop_type": crop_type}
+    for attempt in range(max_retries):
+        try:
+            with open(image_path, "rb") as f:
+                files = {"image": f}
+                data = {"crop_type": crop_type}
+                
+                # Call HuggingFace ML service
+                response = requests.post(
+                    f"{HUGGINGFACE_ML_URL}/detect",
+                    files=files,
+                    data=data,
+                    timeout=120
+                )
             
-            # Call HuggingFace ML service
-            response = requests.post(
-                f"{HUGGINGFACE_ML_URL}/detect",
-                files=files,
-                data=data,
-                timeout=120  # HuggingFace can be slow on cold start
-            )
+            if response.status_code == 503:
+                # Model not loaded yet - wait and retry
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 10  # 10s, 20s, 30s
+                    print(f"ML service not ready, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    raise Exception("ML service is starting up. Please wait 30 seconds and try again.")
+            
+            if response.status_code != 200:
+                raise Exception(f"ML API failed: {response.status_code} - {response.text}")
+            
+            return response.json()
         
-        if response.status_code != 200:
-            raise Exception(f"ML API failed: {response.status_code} - {response.text}")
+        except requests.exceptions.Timeout:
+            if attempt < max_retries - 1:
+                print(f"Timeout on attempt {attempt + 1}/{max_retries}, retrying...")
+                time.sleep(5)
+                continue
+            raise Exception("ML service timeout. The service might be cold-starting. Please try again in 30 seconds.")
         
-        return response.json()
+        except requests.exceptions.ConnectionError:
+            if attempt < max_retries - 1:
+                print(f"Connection error on attempt {attempt + 1}/{max_retries}, retrying...")
+                time.sleep(5)
+                continue
+            raise Exception("Cannot connect to ML service. Please check if the service is running.")
+        
+        except Exception as e:
+            if "503" in str(e) and attempt < max_retries - 1:
+                time.sleep(10)
+                continue
+            raise Exception(f"ML API error: {str(e)}")
     
-    except requests.exceptions.Timeout:
-        raise Exception("ML service timeout. HuggingFace might be starting up. Please try again in 30 seconds.")
-    except requests.exceptions.ConnectionError:
-        raise Exception("Cannot connect to HuggingFace ML service. Please check if the service is running.")
-    except Exception as e:
-        raise Exception(f"ML API error: {str(e)}")
+    raise Exception("Max retries exceeded")
 
-    
 
 # ==================== AUTHENTICATION VIEWS ====================
 @api_view(['POST'])
@@ -189,9 +191,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         return queryset
 
     def create_manual_detection(self, request):
-        """
-        Handles manual detection (without image)
-        """
+        """Handles manual detection (without image)"""
         try:
             lat = float(request.data.get('latitude', 0))
             lng = float(request.data.get('longitude', 0))
@@ -226,9 +226,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             return Response({'error': str(e)}, status=400)
 
     def create(self, request):
-        """
-        Handles detection via ML API or manual fallback
-        """
+        """Handles detection via ML API or manual fallback"""
         if 'image' not in request.FILES:
             return self.create_manual_detection(request)
 
@@ -248,15 +246,19 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     tmp_file.write(chunk)
                 temp_path = tmp_file.name
 
-            # Call Hugging Face ML API
+            print(f"Calling ML API with image: {temp_path}, crop: {crop_type}")
+            
+            # Call ML API with retry logic
             analysis = call_ml_api(temp_path, crop_type=crop_type)
+            
+            print(f"ML API response: {analysis}")
 
             # Save detection
             detection = PestDetection.objects.create(
                 user=request.user,
                 image=image,
                 crop_type=crop_type,
-                pest_name=analysis.get('pest_name', ''),
+                pest_name=analysis.get('pest_name', 'Unknown Pest'),
                 pest_type=analysis.get('pest_key', ''),
                 confidence=analysis.get('confidence', 0.0),
                 severity=analysis.get('severity', 'low'),
@@ -282,13 +284,29 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             return Response(response_data, status=201)
 
         except Exception as e:
-            return Response({'error': f'Detection failed: {str(e)}'}, status=500)
+            error_message = str(e)
+            print(f"Detection error: {error_message}")
+            
+            # Provide helpful error messages
+            if "starting up" in error_message or "503" in error_message:
+                return Response({
+                    'error': 'ML service is warming up. Please wait 30 seconds and try again.',
+                    'retry': True
+                }, status=503)
+            elif "timeout" in error_message.lower():
+                return Response({
+                    'error': 'ML service is taking longer than expected. Please try again.',
+                    'retry': True
+                }, status=504)
+            else:
+                return Response({
+                    'error': f'Detection failed: {error_message}',
+                    'retry': False
+                }, status=500)
         finally:
             if temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)
 
-
-    # ==================== PATCH/UPDATE ====================
     def partial_update(self, request, *args, **kwargs):
         detection_id = kwargs.get('pk')
         try:
@@ -312,7 +330,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         return self.partial_update(request, *args, **kwargs)
 
-    # ==================== EXTRA ACTIONS ====================
     @action(detail=False, methods=['get'])
     def heatmap_data(self, request):
         days = int(request.query_params.get('days', 30))
@@ -365,12 +382,7 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 # ==================== ADMIN VIEWSETS ====================
-# AdminUserManagementViewSet, AdminFarmManagementViewSet, AdminDetectionManagementViewSet,
-# AdminPestInfoManagementViewSet, AdminAlertManagementViewSet, AdminActivityLogViewSet
-# -- Keep your existing implementations; they remain unchanged.
-
-
-# ==================== ADMIN-ONLY VIEWSETS ====================
+# [Keep all your existing admin viewsets - they're already correct]
 
 class AdminUserManagementViewSet(viewsets.ModelViewSet):
     """Admin can manage all users"""
@@ -399,7 +411,6 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def statistics(self, request):
-        """Get user statistics"""
         total_users = User.objects.count()
         farmers = User.objects.filter(role='farmer').count()
         experts = User.objects.filter(role='expert').count()
@@ -416,7 +427,6 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
         })
 
 class AdminFarmManagementViewSet(viewsets.ModelViewSet):
-    """Admin can manage and verify all farms"""
     queryset = Farm.objects.all()
     serializer_class = FarmSerializer
     permission_classes = [IsAdmin]
@@ -431,7 +441,6 @@ class AdminFarmManagementViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def statistics(self, request):
-        """Get farm statistics"""
         total_farms = Farm.objects.count()
         verified = Farm.objects.filter(is_verified=True).count()
         by_crop = {}
@@ -447,7 +456,6 @@ class AdminFarmManagementViewSet(viewsets.ModelViewSet):
         })
 
 class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
-    """Admin can manage and verify all detections"""
     queryset = PestDetection.objects.all()
     serializer_class = PestDetectionSerializer
     permission_classes = [IsAdmin]
@@ -474,14 +482,12 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def pending_verifications(self, request):
-        """Get all pending detections"""
         pending = PestDetection.objects.filter(status='pending')
         serializer = self.get_serializer(pending, many=True)
         return Response(serializer.data)
     
     @action(detail=False, methods=['get'])
     def statistics(self, request):
-        """Get detection statistics for admin dashboard"""
         total = PestDetection.objects.count()
         pending = PestDetection.objects.filter(status='pending').count()
         verified = PestDetection.objects.filter(status='verified').count()
@@ -505,7 +511,6 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
         })
 
 class AdminPestInfoManagementViewSet(viewsets.ModelViewSet):
-    """Admin can create, edit, and manage pest information"""
     queryset = PestInfo.objects.all()
     serializer_class = PestInfoSerializer
     permission_classes = [IsAdmin]
@@ -524,7 +529,6 @@ class AdminPestInfoManagementViewSet(viewsets.ModelViewSet):
         return Response({'message': f'Pest info {status_text} successfully'})
 
 class AdminAlertManagementViewSet(viewsets.ModelViewSet):
-    """Admin can create and manage alerts"""
     queryset = Alert.objects.all()
     serializer_class = AlertSerializer
     permission_classes = [IsAdmin]
@@ -543,7 +547,6 @@ class AdminAlertManagementViewSet(viewsets.ModelViewSet):
         return Response({'message': f'Alert {status_text} successfully'})
 
 class AdminActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
-    """Admin can view all user activities"""
     queryset = UserActivity.objects.all()
     serializer_class = UserActivitySerializer
     permission_classes = [IsAdmin]
@@ -551,17 +554,14 @@ class AdminActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         
-        # Filter by user if provided
         user_id = self.request.query_params.get('user_id')
         if user_id:
             queryset = queryset.filter(user_id=user_id)
         
-        # Filter by action if provided
         action = self.request.query_params.get('action')
         if action:
             queryset = queryset.filter(action__icontains=action)
         
-        # Filter by date range
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
         if date_from:
