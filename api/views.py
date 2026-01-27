@@ -56,13 +56,19 @@ def call_ml_api(image_path, crop_type='rice', max_retries=3):
     """
     Sends image to HuggingFace ML service with retry logic
     """
+    print(f"[ML API] Starting detection - URL: {HUGGINGFACE_ML_URL}")
+    print(f"[ML API] Image path: {image_path}, Crop type: {crop_type}")
+    
     for attempt in range(max_retries):
         try:
+            print(f"[ML API] Attempt {attempt + 1}/{max_retries}")
+            
             with open(image_path, "rb") as f:
                 files = {"image": f}
                 data = {"crop_type": crop_type}
                 
                 # Call HuggingFace ML service
+                print(f"[ML API] Sending POST request to {HUGGINGFACE_ML_URL}/detect")
                 response = requests.post(
                     f"{HUGGINGFACE_ML_URL}/detect",
                     files=files,
@@ -70,36 +76,44 @@ def call_ml_api(image_path, crop_type='rice', max_retries=3):
                     timeout=120
                 )
             
+            print(f"[ML API] Response status code: {response.status_code}")
+            
             if response.status_code == 503:
                 # Model not loaded yet - wait and retry
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 10  # 10s, 20s, 30s
-                    print(f"ML service not ready, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
+                    print(f"[ML API] Service not ready, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
                     time.sleep(wait_time)
                     continue
                 else:
                     raise Exception("ML service is starting up. Please wait 30 seconds and try again.")
             
             if response.status_code != 200:
+                print(f"[ML API] Error response: {response.text}")
                 raise Exception(f"ML API failed: {response.status_code} - {response.text}")
             
-            return response.json()
+            result = response.json()
+            print(f"[ML API] Success! Response: {result}")
+            return result
         
         except requests.exceptions.Timeout:
+            print(f"[ML API] Timeout on attempt {attempt + 1}/{max_retries}")
             if attempt < max_retries - 1:
-                print(f"Timeout on attempt {attempt + 1}/{max_retries}, retrying...")
+                print(f"[ML API] Retrying after timeout...")
                 time.sleep(5)
                 continue
             raise Exception("ML service timeout. The service might be cold-starting. Please try again in 30 seconds.")
         
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as e:
+            print(f"[ML API] Connection error on attempt {attempt + 1}/{max_retries}: {str(e)}")
             if attempt < max_retries - 1:
-                print(f"Connection error on attempt {attempt + 1}/{max_retries}, retrying...")
+                print(f"[ML API] Retrying after connection error...")
                 time.sleep(5)
                 continue
             raise Exception("Cannot connect to ML service. Please check if the service is running.")
         
         except Exception as e:
+            print(f"[ML API] Exception: {str(e)}")
             if "503" in str(e) and attempt < max_retries - 1:
                 time.sleep(10)
                 continue
@@ -150,6 +164,43 @@ def logout_view(request):
 @permission_classes([IsAuthenticated])
 def user_profile(request):
     return Response(UserSerializer(request.user).data)
+
+
+# ==================== TEST ML SERVICE ====================
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def test_ml_service(request):
+    """Test if ML service is reachable"""
+    try:
+        print(f"[TEST ML] Testing connection to: {HUGGINGFACE_ML_URL}")
+        response = requests.get(f"{HUGGINGFACE_ML_URL}/", timeout=10)
+        return Response({
+            'ml_url': HUGGINGFACE_ML_URL,
+            'status': response.status_code,
+            'reachable': True,
+            'message': 'ML service is reachable'
+        })
+    except requests.exceptions.Timeout:
+        return Response({
+            'ml_url': HUGGINGFACE_ML_URL,
+            'error': 'Connection timeout',
+            'reachable': False,
+            'message': 'ML service is not responding (timeout)'
+        }, status=500)
+    except requests.exceptions.ConnectionError as e:
+        return Response({
+            'ml_url': HUGGINGFACE_ML_URL,
+            'error': str(e),
+            'reachable': False,
+            'message': 'Cannot connect to ML service'
+        }, status=500)
+    except Exception as e:
+        return Response({
+            'ml_url': HUGGINGFACE_ML_URL,
+            'error': str(e),
+            'reachable': False,
+            'message': 'Unknown error testing ML service'
+        }, status=500)
 
 
 # ==================== FARM VIEWSET ====================
@@ -257,21 +308,53 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     tmp_file.write(chunk)
                 temp_path = tmp_file.name
 
-            print(f"Calling ML API with image: {temp_path}, crop: {crop_type}")
+            print(f"[DETECTION] Calling ML API with image: {temp_path}, crop: {crop_type}")
+            print(f"[DETECTION] ML API URL: {HUGGINGFACE_ML_URL}/detect")
             
             # Call ML API with retry logic
             analysis = call_ml_api(temp_path, crop_type=crop_type)
             
-            print(f"ML API response: {analysis}")
+            print(f"[DETECTION] ML API response: {analysis}")
+            print(f"[DETECTION] Pest name from API: {analysis.get('pest_name', 'NOT FOUND')}")
+            print(f"[DETECTION] Confidence from API: {analysis.get('confidence', 0.0)}")
 
-            # Save detection
+            # Check if we got valid pest detection
+            pest_name = analysis.get('pest_name', 'Unknown Pest')
+            confidence = analysis.get('confidence', 0.0)
+            
+            if not pest_name or pest_name == 'Unknown Pest' or confidence == 0.0:
+                print("[DETECTION] No pest detected or low confidence")
+                # Save detection with no pest found
+                detection = PestDetection.objects.create(
+                    user=request.user,
+                    image=image,
+                    crop_type=crop_type,
+                    pest_name='No Pest Detected',
+                    pest_type='none',
+                    confidence=0.0,
+                    severity='low',
+                    latitude=lat,
+                    longitude=lng,
+                    address=request.data.get('address', ''),
+                    description='No pest detected in the image',
+                    status='pending',
+                    detected_at=timezone.now()
+                )
+                
+                return Response({
+                    **PestDetectionSerializer(detection).data,
+                    'error': 'No pest detected in the image. Please try another image with visible pest damage.',
+                    'retry': True
+                }, status=200)
+
+            # Save detection with valid pest data
             detection = PestDetection.objects.create(
                 user=request.user,
                 image=image,
                 crop_type=crop_type,
-                pest_name=analysis.get('pest_name', 'Unknown Pest'),
+                pest_name=pest_name,
                 pest_type=analysis.get('pest_key', ''),
-                confidence=analysis.get('confidence', 0.0),
+                confidence=confidence,
                 severity=analysis.get('severity', 'low'),
                 latitude=lat,
                 longitude=lng,
@@ -296,27 +379,63 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             error_message = str(e)
-            print(f"Detection error: {error_message}")
+            print(f"[DETECTION] Error: {error_message}")
             
-            # Provide helpful error messages
-            if "starting up" in error_message or "503" in error_message:
+            # Create fallback detection record
+            try:
+                detection = PestDetection.objects.create(
+                    user=request.user,
+                    image=image,
+                    crop_type=crop_type,
+                    pest_name='Detection Failed - Service Unavailable',
+                    pest_type='error',
+                    confidence=0.0,
+                    severity='low',
+                    latitude=lat,
+                    longitude=lng,
+                    address=request.data.get('address', ''),
+                    description='ML service temporarily unavailable',
+                    status='pending',
+                    detected_at=timezone.now()
+                )
+                
+                # Provide helpful error messages
+                if "starting up" in error_message or "503" in error_message:
+                    return Response({
+                        **PestDetectionSerializer(detection).data,
+                        'error': 'ML service is warming up. Please wait 30 seconds and try again.',
+                        'retry': True
+                    }, status=503)
+                elif "timeout" in error_message.lower():
+                    return Response({
+                        **PestDetectionSerializer(detection).data,
+                        'error': 'ML service is taking longer than expected. Please try again.',
+                        'retry': True
+                    }, status=504)
+                elif "connect" in error_message.lower():
+                    return Response({
+                        **PestDetectionSerializer(detection).data,
+                        'error': 'Cannot connect to ML service. Please try again later.',
+                        'retry': True
+                    }, status=503)
+                else:
+                    return Response({
+                        **PestDetectionSerializer(detection).data,
+                        'error': f'Detection failed: {error_message}',
+                        'retry': True
+                    }, status=500)
+            except Exception as db_error:
+                print(f"[DETECTION] Failed to create fallback detection: {str(db_error)}")
                 return Response({
-                    'error': 'ML service is warming up. Please wait 30 seconds and try again.',
+                    'error': f'Detection failed and could not save record: {error_message}',
                     'retry': True
-                }, status=503)
-            elif "timeout" in error_message.lower():
-                return Response({
-                    'error': 'ML service is taking longer than expected. Please try again.',
-                    'retry': True
-                }, status=504)
-            else:
-                return Response({
-                    'error': f'Detection failed: {error_message}',
-                    'retry': False
                 }, status=500)
         finally:
             if temp_path and os.path.exists(temp_path):
-                os.remove(temp_path)
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
 
     def partial_update(self, request, *args, **kwargs):
         detection_id = kwargs.get('pk')
@@ -406,7 +525,6 @@ class DetectionStatisticsAPIView(APIView):
         })
 
 # ==================== PEST INFO VIEWSET ====================
-# In api/views.py
 class PestInfoViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PestInfo.objects.filter(is_published=True)
     serializer_class = PestInfoSerializer
@@ -434,8 +552,6 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 # ==================== ADMIN VIEWSETS ====================
-# [Keep all your existing admin viewsets - they're already correct]
-
 class AdminUserManagementViewSet(viewsets.ModelViewSet):
     """Admin can manage all users"""
     queryset = User.objects.all()

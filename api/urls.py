@@ -1,9 +1,9 @@
 # api/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from rest_framework_simplejwt.views import TokenRefreshView  # ADD THIS IMPORT
+from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
-    register_view, login_view, logout_view, user_profile,
+    register_view, login_view, logout_view, user_profile, test_ml_service,
     # User/Farmer ViewSets
     FarmViewSet, PestDetectionViewSet, PestInfoViewSet, AlertViewSet,
     # Admin ViewSets
@@ -39,7 +39,10 @@ urlpatterns = [
     path('auth/login/', login_view, name='login'),
     path('auth/logout/', logout_view, name='logout'),
     path('auth/profile/', user_profile, name='profile'),
-    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),  # ADD THIS LINE
+    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    
+    # Test ML service endpoint
+    path('test-ml/', test_ml_service, name='test_ml'),
     
     path('detections/', DetectionListCreateAPIView.as_view(), name='detections'),
     path('detections/statistics/', DetectionStatisticsAPIView.as_view(), name='detections-statistics'),
