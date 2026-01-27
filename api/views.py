@@ -223,8 +223,8 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
     queryset = PestDetection.objects.all()
     serializer_class = PestDetectionSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]  # Add explicit parsers
 
-    # Automatically set the user on creation
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
     
@@ -285,22 +285,75 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             response_data['farm_id'] = farm.id if farm else None
             return Response(response_data, status=201)
         except Exception as e:
+            print(f"[MANUAL DETECTION] Error: {str(e)}")
             return Response({'error': str(e)}, status=400)
 
     def create(self, request):
         """Handles detection via ML API or manual fallback"""
+        print(f"[CREATE DETECTION] Request started")
+        print(f"[CREATE DETECTION] User: {request.user.username}")
+        print(f"[CREATE DETECTION] Files: {list(request.FILES.keys())}")
+        print(f"[CREATE DETECTION] Data keys: {list(request.data.keys())}")
+        
+        # Log all form data for debugging
+        for key, value in request.data.items():
+            if key == 'image':
+                print(f"[CREATE DETECTION] {key}: <File object>")
+            else:
+                print(f"[CREATE DETECTION] {key}: {value}")
+        
         if 'image' not in request.FILES:
+            print("[CREATE DETECTION] No image in request, calling manual detection")
             return self.create_manual_detection(request)
 
         temp_path = None
         try:
-            lat = float(request.data.get('latitude', 0))
-            lng = float(request.data.get('longitude', 0))
+            # Validate required fields
+            if not request.data.get('latitude'):
+                return Response({
+                    'error': 'Latitude is required',
+                    'field': 'latitude'
+                }, status=400)
+            
+            if not request.data.get('longitude'):
+                return Response({
+                    'error': 'Longitude is required',
+                    'field': 'longitude'
+                }, status=400)
+            
+            # Parse location
+            try:
+                lat = float(request.data.get('latitude', 0))
+                lng = float(request.data.get('longitude', 0))
+            except (ValueError, TypeError) as e:
+                return Response({
+                    'error': f'Invalid location format: {str(e)}',
+                    'latitude': request.data.get('latitude'),
+                    'longitude': request.data.get('longitude')
+                }, status=400)
+            
             crop_type = request.data.get('crop_type', 'rice')
             image = request.FILES.get('image')
 
             if not image:
-                return Response({'error': 'No image provided'}, status=400)
+                return Response({'error': 'No image file provided'}, status=400)
+            
+            # Validate image
+            if not image.content_type.startswith('image/'):
+                return Response({
+                    'error': 'Invalid file type. Please upload an image file.',
+                    'file_type': image.content_type
+                }, status=400)
+            
+            # Check file size (max 10MB)
+            if image.size > 10 * 1024 * 1024:
+                return Response({
+                    'error': 'Image file is too large. Maximum size is 10MB.',
+                    'file_size': image.size
+                }, status=400)
+
+            print(f"[CREATE DETECTION] Image: {image.name}, Size: {image.size}, Type: {image.content_type}")
+            print(f"[CREATE DETECTION] Crop: {crop_type}, Lat: {lat}, Lng: {lng}")
 
             # Save temporary file
             with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_file:
@@ -308,22 +361,22 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     tmp_file.write(chunk)
                 temp_path = tmp_file.name
 
-            print(f"[DETECTION] Calling ML API with image: {temp_path}, crop: {crop_type}")
-            print(f"[DETECTION] ML API URL: {HUGGINGFACE_ML_URL}/detect")
+            print(f"[CREATE DETECTION] Temp file saved: {temp_path}")
+            print(f"[CREATE DETECTION] Calling ML API...")
             
             # Call ML API with retry logic
             analysis = call_ml_api(temp_path, crop_type=crop_type)
             
-            print(f"[DETECTION] ML API response: {analysis}")
-            print(f"[DETECTION] Pest name from API: {analysis.get('pest_name', 'NOT FOUND')}")
-            print(f"[DETECTION] Confidence from API: {analysis.get('confidence', 0.0)}")
+            print(f"[CREATE DETECTION] ML API response received")
+            print(f"[CREATE DETECTION] Pest name: {analysis.get('pest_name', 'NOT FOUND')}")
+            print(f"[CREATE DETECTION] Confidence: {analysis.get('confidence', 0.0)}")
 
             # Check if we got valid pest detection
             pest_name = analysis.get('pest_name', 'Unknown Pest')
             confidence = analysis.get('confidence', 0.0)
             
             if not pest_name or pest_name == 'Unknown Pest' or confidence == 0.0:
-                print("[DETECTION] No pest detected or low confidence")
+                print("[CREATE DETECTION] No pest detected or low confidence")
                 # Save detection with no pest found
                 detection = PestDetection.objects.create(
                     user=request.user,
@@ -340,6 +393,8 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     status='pending',
                     detected_at=timezone.now()
                 )
+                
+                print(f"[CREATE DETECTION] Saved detection with ID: {detection.id}")
                 
                 return Response({
                     **PestDetectionSerializer(detection).data,
@@ -364,6 +419,8 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 detected_at=timezone.now()
             )
             log_activity(request.user, 'detected_pest', f"Pest: {detection.pest_name}", request)
+            
+            print(f"[CREATE DETECTION] Successfully saved detection with ID: {detection.id}")
 
             # Return enriched response
             serializer = self.get_serializer(detection)
@@ -379,25 +436,29 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
 
         except Exception as e:
             error_message = str(e)
-            print(f"[DETECTION] Error: {error_message}")
+            print(f"[CREATE DETECTION] Exception: {error_message}")
+            import traceback
+            print(f"[CREATE DETECTION] Traceback: {traceback.format_exc()}")
             
             # Create fallback detection record
             try:
                 detection = PestDetection.objects.create(
                     user=request.user,
-                    image=image,
-                    crop_type=crop_type,
+                    image=image if 'image' in request.FILES else None,
+                    crop_type=request.data.get('crop_type', 'rice'),
                     pest_name='Detection Failed - Service Unavailable',
                     pest_type='error',
                     confidence=0.0,
                     severity='low',
-                    latitude=lat,
-                    longitude=lng,
+                    latitude=float(request.data.get('latitude', 0)),
+                    longitude=float(request.data.get('longitude', 0)),
                     address=request.data.get('address', ''),
                     description='ML service temporarily unavailable',
                     status='pending',
                     detected_at=timezone.now()
                 )
+                
+                print(f"[CREATE DETECTION] Created fallback detection with ID: {detection.id}")
                 
                 # Provide helpful error messages
                 if "starting up" in error_message or "503" in error_message:
@@ -425,15 +486,16 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                         'retry': True
                     }, status=500)
             except Exception as db_error:
-                print(f"[DETECTION] Failed to create fallback detection: {str(db_error)}")
+                print(f"[CREATE DETECTION] Failed to create fallback detection: {str(db_error)}")
                 return Response({
-                    'error': f'Detection failed and could not save record: {error_message}',
+                    'error': f'Detection failed: {error_message}',
                     'retry': True
                 }, status=500)
         finally:
             if temp_path and os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
+                    print(f"[CREATE DETECTION] Cleaned up temp file: {temp_path}")
                 except:
                     pass
 
@@ -737,4 +799,4 @@ class AdminActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
         if date_to:
             queryset = queryset.filter(timestamp__lte=date_to)
         
-        return queryset
+        return querysets
