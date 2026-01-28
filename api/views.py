@@ -264,14 +264,39 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             print(f"ML API response: {analysis}")
 
-            # Save detection
+            # ✅ ADD VALIDATION HERE - Check if pest was actually detected
+            pest_name = analysis.get('pest_name', '')
+            confidence = analysis.get('confidence', 0.0)
+            
+            print(f"🔍 Validation - pest_name: '{pest_name}', confidence: {confidence}")
+            
+            # Don't save if no pest was detected
+            if not pest_name or pest_name == 'Unknown Pest' or pest_name == '' or confidence < 0.1:
+                print(f"❌ Validation FAILED - No valid pest detected")
+                print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
+                print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
+                return Response({
+                    'error': 'No pest detected in the image. Please try another image with clearer pest visibility.',
+                    'retry': True,
+                    'debug': {
+                        'pest_name': pest_name,
+                        'confidence': confidence,
+                        'ml_response': analysis
+                    }
+                }, status=400)
+            
+            print(f"✅ Validation PASSED - Saving detection")
+            print(f"   pest_name: '{pest_name}'")
+            print(f"   confidence: {confidence}")
+
+            # Only save if we have a valid detection
             detection = PestDetection.objects.create(
                 user=request.user,
                 image=image,
                 crop_type=crop_type,
-                pest_name=analysis.get('pest_name', 'Unknown Pest'),
+                pest_name=pest_name,  # Use validated pest_name
                 pest_type=analysis.get('pest_key', ''),
-                confidence=analysis.get('confidence', 0.0),
+                confidence=confidence,  # Use validated confidence
                 severity=analysis.get('severity', 'low'),
                 latitude=lat,
                 longitude=lng,
@@ -292,11 +317,13 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 'prevention': analysis.get('prevention', []),
                 'num_detections': analysis.get('num_detections', 1)
             })
+            
+            print(f"✅ Returning successful detection response")
             return Response(response_data, status=201)
 
         except Exception as e:
             error_message = str(e)
-            print(f"Detection error: {error_message}")
+            print(f"❌ Detection error: {error_message}")
             
             # Provide helpful error messages
             if "starting up" in error_message or "503" in error_message:
@@ -317,7 +344,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         finally:
             if temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)
-
+                
     def partial_update(self, request, *args, **kwargs):
         detection_id = kwargs.get('pk')
         try:
