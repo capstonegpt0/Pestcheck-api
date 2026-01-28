@@ -2,18 +2,31 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
+
 from .views import (
-    register_view, login_view, logout_view, user_profile, test_ml_service,
+    # Auth views
+    register_view, 
+    login_view, 
+    logout_view, 
+    user_profile,
     # User/Farmer ViewSets
-    FarmViewSet, PestDetectionViewSet, PestInfoViewSet, AlertViewSet,
+    FarmViewSet, 
+    PestDetectionViewSet, 
+    PestInfoViewSet, 
+    AlertViewSet,
     # Admin ViewSets
-    AdminUserManagementViewSet, AdminFarmManagementViewSet, 
-    AdminDetectionManagementViewSet, AdminPestInfoManagementViewSet,
-    AdminAlertManagementViewSet, AdminActivityLogViewSet,
-    
-    DetectionListCreateAPIView, DetectionStatisticsAPIView
+    AdminUserManagementViewSet, 
+    AdminFarmManagementViewSet, 
+    AdminDetectionManagementViewSet, 
+    AdminPestInfoManagementViewSet,
+    AdminAlertManagementViewSet, 
+    AdminActivityLogViewSet,
+    # Additional views
+    DetectionListCreateAPIView, 
+    DetectionStatisticsAPIView
 )
 
+# Main router for detections
 router = DefaultRouter()
 router.register(r'detections', PestDetectionViewSet, basename='detections')
 
@@ -41,9 +54,7 @@ urlpatterns = [
     path('auth/profile/', user_profile, name='profile'),
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
-    # Test ML service endpoint
-    path('test-ml/', test_ml_service, name='test_ml'),
-    
+    # Detection endpoints
     path('detections/', DetectionListCreateAPIView.as_view(), name='detections'),
     path('detections/statistics/', DetectionStatisticsAPIView.as_view(), name='detections-statistics'),
     
