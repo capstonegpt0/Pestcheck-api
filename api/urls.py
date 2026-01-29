@@ -22,17 +22,13 @@ from .views import (
     AdminAlertManagementViewSet, 
     AdminActivityLogViewSet,
     # Additional views
-    DetectionListCreateAPIView, 
     DetectionStatisticsAPIView
 )
-
-# Main router for detections
-router = DefaultRouter()
-router.register(r'detections', PestDetectionViewSet, basename='detections')
 
 # User/Farmer Router
 user_router = DefaultRouter()
 user_router.register(r'farms', FarmViewSet, basename='farm')
+user_router.register(r'detections', PestDetectionViewSet, basename='detection')
 user_router.register(r'pests', PestInfoViewSet, basename='pest')
 user_router.register(r'alerts', AlertViewSet, basename='alert')
 
@@ -53,11 +49,13 @@ urlpatterns = [
     path('auth/profile/', user_profile, name='profile'),
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
-    # Detection endpoints
-    path('detections/', DetectionListCreateAPIView.as_view(), name='detections'),
+    # Statistics endpoint (keep this one)
     path('detections/statistics/', DetectionStatisticsAPIView.as_view(), name='detections-statistics'),
     
-    # User/Farmer endpoints
+    # ✅ REMOVED DetectionListCreateAPIView - using PestDetectionViewSet instead
+    # The router below already handles /detections/ via PestDetectionViewSet
+    
+    # User/Farmer endpoints - This includes /detections/ via PestDetectionViewSet
     path('', include(user_router.urls)),
     
     # Admin endpoints
