@@ -33,7 +33,6 @@ router.register(r'detections', PestDetectionViewSet, basename='detections')
 # User/Farmer Router
 user_router = DefaultRouter()
 user_router.register(r'farms', FarmViewSet, basename='farm')
-user_router.register(r'detections', PestDetectionViewSet, basename='detection')
 user_router.register(r'pests', PestInfoViewSet, basename='pest')
 user_router.register(r'alerts', AlertViewSet, basename='alert')
 
