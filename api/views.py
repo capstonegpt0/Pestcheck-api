@@ -5,7 +5,7 @@ import time
 from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Count, Q
-
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from .models import PestDetection, Farm
@@ -14,13 +14,11 @@ from rest_framework import viewsets, status, generics, permissions
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework_simplejwt.tokens import RefreshToken
 
-
-from .models import User, Farm, FarmRequest, PestDetection, PestInfo, InfestationReport, Alert, UserActivity  # Added FarmRequest
+from .models import User, Farm, FarmRequest, PestDetection, PestInfo, InfestationReport, Alert, UserActivity
 from .serializers import (
     UserSerializer, RegisterSerializer, LoginSerializer,
-    FarmSerializer, FarmRequestSerializer, PestDetectionSerializer, PestInfoSerializer,  # Added FarmRequestSerializer
+    FarmSerializer, FarmRequestSerializer, PestDetectionSerializer, PestInfoSerializer,
     InfestationReportSerializer, AlertSerializer, UserActivitySerializer
 )
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
