@@ -23,11 +23,7 @@ from .serializers import (
     FarmSerializer, PestDetectionSerializer, PestInfoSerializer, 
     InfestationReportSerializer, AlertSerializer, UserActivitySerializer
 )
-<<<<<<< HEAD
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
-=======
-from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin, IsExpertOrAdmin
->>>>>>> 1ce214b6dde2e695806868f16560e687b26f5c67
 
 # ==================== CONSTANTS ====================
 MAGALANG_BOUNDS = {
@@ -485,11 +481,7 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
     def change_role(self, request, pk=None):
         user = self.get_object()
         new_role = request.data.get('role')
-<<<<<<< HEAD
         if new_role in ['admin', 'farmer']:
-=======
-        if new_role in ['admin', 'farmer', 'expert']:
->>>>>>> 1ce214b6dde2e695806868f16560e687b26f5c67
             user.role = new_role
             user.save()
             log_activity(request.user, 'changed_user_role', f'User: {user.username}, New role: {new_role}', request)
@@ -500,20 +492,12 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
     def statistics(self, request):
         total_users = User.objects.count()
         farmers = User.objects.filter(role='farmer').count()
-<<<<<<< HEAD
-=======
-        experts = User.objects.filter(role='expert').count()
->>>>>>> 1ce214b6dde2e695806868f16560e687b26f5c67
         admins = User.objects.filter(role='admin').count()
         verified = User.objects.filter(is_verified=True).count()
         
         return Response({
             'total_users': total_users,
             'farmers': farmers,
-<<<<<<< HEAD
-=======
-            'experts': experts,
->>>>>>> 1ce214b6dde2e695806868f16560e687b26f5c67
             'admins': admins,
             'verified_users': verified,
             'unverified_users': total_users - verified
