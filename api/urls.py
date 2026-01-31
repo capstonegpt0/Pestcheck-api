@@ -4,30 +4,29 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from .views import (
-    # Auth views
-    register_view, 
-    login_view, 
-    logout_view, 
-    user_profile,
+    register_view, login_view, logout_view, user_profile,
     # User/Farmer ViewSets
     FarmViewSet, 
+    FarmRequestViewSet,  # ← ADD THIS
     PestDetectionViewSet, 
     PestInfoViewSet, 
     AlertViewSet,
     # Admin ViewSets
     AdminUserManagementViewSet, 
-    AdminFarmManagementViewSet, 
+    AdminFarmManagementViewSet,
+    AdminFarmRequestManagementViewSet,  # ← ADD THIS
     AdminDetectionManagementViewSet, 
     AdminPestInfoManagementViewSet,
     AdminAlertManagementViewSet, 
     AdminActivityLogViewSet,
-    # Additional views
+    DetectionListCreateAPIView, 
     DetectionStatisticsAPIView
 )
 
 # User/Farmer Router
 user_router = DefaultRouter()
 user_router.register(r'farms', FarmViewSet, basename='farm')
+user_router.register(r'farm-requests', FarmRequestViewSet, basename='farm-request')  # ← ADD THIS
 user_router.register(r'detections', PestDetectionViewSet, basename='detection')
 user_router.register(r'pests', PestInfoViewSet, basename='pest')
 user_router.register(r'alerts', AlertViewSet, basename='alert')
@@ -36,6 +35,7 @@ user_router.register(r'alerts', AlertViewSet, basename='alert')
 admin_router = DefaultRouter()
 admin_router.register(r'users', AdminUserManagementViewSet, basename='admin-user')
 admin_router.register(r'farms', AdminFarmManagementViewSet, basename='admin-farm')
+admin_router.register(r'farm-requests', AdminFarmRequestManagementViewSet, basename='admin-farm-request')  # ← ADD THIS
 admin_router.register(r'detections', AdminDetectionManagementViewSet, basename='admin-detection')
 admin_router.register(r'pests', AdminPestInfoManagementViewSet, basename='admin-pest')
 admin_router.register(r'alerts', AdminAlertManagementViewSet, basename='admin-alert')

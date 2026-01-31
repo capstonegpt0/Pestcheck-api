@@ -23,16 +23,56 @@ class User(AbstractUser):
     def is_farmer(self):
         return self.role == 'farmer'
 
-# Farm model
+# Farm Request model - Users request farms here
+class FarmRequest(models.Model):
+    """Farm registration requests from users - requires admin approval"""
+    STATUS_CHOICES = [
+        ('pending', 'Pending Review'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='farm_requests')
+    name = models.CharField(max_length=200)
+    lat = models.FloatField(verbose_name='Latitude')
+    lng = models.FloatField(verbose_name='Longitude')
+    size = models.FloatField(null=True, blank=True, help_text='Size in hectares')
+    crop_type = models.CharField(max_length=100, null=True, blank=True)
+    description = models.TextField(blank=True, help_text='Additional information about the farm')
+    
+    # Request status
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    
+    # Admin review
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_farm_requests')
+    review_notes = models.TextField(blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    
+    # Associated farm (created when approved)
+    approved_farm = models.ForeignKey('Farm', on_delete=models.SET_NULL, null=True, blank=True, related_name='original_request')
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'farm_requests'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.name} - {self.user.username} ({self.status})"
+
+# Farm model - Created only by admin when approving requests
 class Farm(models.Model):
-    """Farm locations for users"""
+    """Farm locations for users - Created only by admin approval"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='farms')
     name = models.CharField(max_length=200)
     lat = models.FloatField(verbose_name='Latitude')
     lng = models.FloatField(verbose_name='Longitude')
     size = models.FloatField(null=True, blank=True, help_text='Size in hectares')
     crop_type = models.CharField(max_length=100, null=True, blank=True)
-    is_verified = models.BooleanField(default=False)
+    is_verified = models.BooleanField(default=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='farms_created')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -152,7 +192,7 @@ class Alert(models.Model):
     def __str__(self):
         return self.title
 
-# UserActivity model - ONLY ONE DEFINITION
+# UserActivity model
 class UserActivity(models.Model):
     """Track user activities for admin monitoring"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='activities')

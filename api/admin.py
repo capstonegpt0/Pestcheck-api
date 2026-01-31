@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User, PestDetection, PestInfo, InfestationReport
+from .models import User, PestDetection, PestInfo, InfestationReport, FarmRequest  # Added FarmRequest
+
 
 # Safely unregister User if it's already registered
 try:
@@ -61,6 +62,25 @@ class PestInfoAdmin(admin.ModelAdmin):
         }),
         ('Management', {
             'fields': ('control_methods', 'prevention')
+        }),
+    )
+    
+@admin.register(FarmRequest)
+class FarmRequestAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'user', 'status', 'created_at', 'reviewed_by']
+    list_filter = ['status', 'created_at']
+    search_fields = ['name', 'user__username']
+    readonly_fields = ['created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Request Info', {
+            'fields': ('user', 'name', 'lat', 'lng', 'size', 'crop_type', 'description')
+        }),
+        ('Status', {
+            'fields': ('status', 'reviewed_by', 'review_notes', 'reviewed_at')
+        }),
+        ('Result', {
+            'fields': ('approved_farm',)
         }),
     )
 

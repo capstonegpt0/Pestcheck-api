@@ -17,10 +17,10 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 
 
-from .models import User, Farm, PestDetection, PestInfo, InfestationReport, Alert, UserActivity
+from .models import User, Farm, FarmRequest, PestDetection, PestInfo, InfestationReport, Alert, UserActivity  # Added FarmRequest
 from .serializers import (
     UserSerializer, RegisterSerializer, LoginSerializer,
-    FarmSerializer, PestDetectionSerializer, PestInfoSerializer, 
+    FarmSerializer, FarmRequestSerializer, PestDetectionSerializer, PestInfoSerializer,  # Added FarmRequestSerializer
     InfestationReportSerializer, AlertSerializer, UserActivitySerializer
 )
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
@@ -152,19 +152,69 @@ def user_profile(request):
     return Response(UserSerializer(request.user).data)
 
 
-# ==================== FARM VIEWSET ====================
-class FarmViewSet(viewsets.ModelViewSet):
+# ==================== FARM REQUEST VIEWSET (NEW) ====================
+class FarmRequestViewSet(viewsets.ModelViewSet):
+    """
+    Farmers can CREATE farm requests
+    Farmers can VIEW their own farm requests
+    """
+    serializer_class = FarmRequestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if self.request.user.role == 'admin':
+            return FarmRequest.objects.all()
+        return FarmRequest.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        farm_request = serializer.save(user=self.request.user, status='pending')
+        log_activity(
+            self.request.user, 
+            'farm_request_submitted', 
+            f'Farm request: {farm_request.name}', 
+            self.request
+        )
+
+    def create(self, request, *args, **kwargs):
+        if request.user.role == 'admin':
+            return Response(
+                {'error': 'Admins create farms directly, not requests.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if request.user.role != 'admin':
+            if instance.user != request.user:
+                return Response({'error': 'Cannot update others requests'}, status=status.HTTP_403_FORBIDDEN)
+            if instance.status != 'pending':
+                return Response({'error': 'Cannot update reviewed requests'}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if request.user.role != 'admin':
+            if instance.user != request.user:
+                return Response({'error': 'Cannot delete others requests'}, status=status.HTTP_403_FORBIDDEN)
+            if instance.status != 'pending':
+                return Response({'error': 'Cannot delete reviewed requests'}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
+
+# ==================== FARM VIEWSET (UPDATED - READ ONLY FOR FARMERS) ====================
+class FarmViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Farmers can only VIEW their approved farms (Read-Only)
+    Admins can VIEW all farms
+    """
     serializer_class = FarmSerializer
-    permission_classes = [IsAuthenticated, IsFarmerOrAdmin]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         if self.request.user.role == 'admin':
             return Farm.objects.all()
         return Farm.objects.filter(user=self.request.user)
-
-    def perform_create(self, serializer):
-        farm = serializer.save(user=self.request.user)
-        log_activity(self.request.user, 'created_farm', f'Farm: {farm.name}', self.request)
 
 
 # ==================== PEST DETECTION VIEWSET ====================
@@ -586,6 +636,96 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
             'resolved': resolved,
             'by_severity': by_severity
         })
+        
+# ==================== ADMIN FARM REQUEST MANAGEMENT (NEW) ====================
+class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
+    """Admin can manage all farm requests and approve/reject them"""
+    queryset = FarmRequest.objects.all()
+    serializer_class = FarmRequestSerializer
+    permission_classes = [IsAdmin]
+    
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve farm request and create farm"""
+        farm_request = self.get_object()
+        
+        if farm_request.status != 'pending':
+            return Response(
+                {'error': f'Request already {farm_request.status}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Create the farm
+            farm = Farm.objects.create(
+                user=farm_request.user,
+                name=farm_request.name,
+                lat=farm_request.lat,
+                lng=farm_request.lng,
+                size=farm_request.size,
+                crop_type=farm_request.crop_type,
+                is_verified=True,
+                created_by=request.user
+            )
+            
+            # Update request
+            farm_request.status = 'approved'
+            farm_request.reviewed_by = request.user
+            farm_request.reviewed_at = timezone.now()
+            farm_request.review_notes = request.data.get('review_notes', '')
+            farm_request.approved_farm = farm
+            farm_request.save()
+            
+            log_activity(
+                request.user, 
+                'farm_request_approved', 
+                f'Approved: {farm_request.name} for {farm_request.user.username}', 
+                request
+            )
+            
+            return Response({
+                'message': 'Farm request approved',
+                'farm_id': farm.id
+            })
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Reject farm request"""
+        farm_request = self.get_object()
+        
+        if farm_request.status != 'pending':
+            return Response(
+                {'error': f'Request already {farm_request.status}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        farm_request.status = 'rejected'
+        farm_request.reviewed_by = request.user
+        farm_request.reviewed_at = timezone.now()
+        farm_request.review_notes = request.data.get('review_notes', 'Rejected')
+        farm_request.save()
+        
+        log_activity(
+            request.user, 
+            'farm_request_rejected', 
+            f'Rejected: {farm_request.name}', 
+            request
+        )
+        
+        return Response({'message': 'Farm request rejected'})
+    
+    @action(detail=False, methods=['get'])
+    def pending_requests(self, request):
+        """Get pending requests"""
+        pending = self.get_queryset().filter(status='pending')
+        serializer = self.get_serializer(pending, many=True)
+        return Response(serializer.data)
 
 class AdminPestInfoManagementViewSet(viewsets.ModelViewSet):
     queryset = PestInfo.objects.all()
