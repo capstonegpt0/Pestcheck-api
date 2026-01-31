@@ -19,7 +19,7 @@ class UserSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True)
-    role = serializers.ChoiceField(choices=['farmer', 'expert'], default='farmer')
+    role = serializers.ChoiceField(choices=['farmer'], default='farmer')
 
     class Meta:
         model = User

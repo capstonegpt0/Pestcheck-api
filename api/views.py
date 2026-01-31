@@ -23,7 +23,7 @@ from .serializers import (
     FarmSerializer, PestDetectionSerializer, PestInfoSerializer, 
     InfestationReportSerializer, AlertSerializer, UserActivitySerializer
 )
-from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin, IsExpertOrAdmin
+from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
 
 # ==================== CONSTANTS ====================
 MAGALANG_BOUNDS = {
@@ -264,14 +264,39 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             print(f"ML API response: {analysis}")
 
-            # Save detection
+            # ✅ ADD VALIDATION HERE - Check if pest was actually detected
+            pest_name = analysis.get('pest_name', '')
+            confidence = analysis.get('confidence', 0.0)
+            
+            print(f"🔍 Validation - pest_name: '{pest_name}', confidence: {confidence}")
+            
+            # Don't save if no pest was detected
+            if not pest_name or pest_name == 'Unknown Pest' or pest_name == '' or confidence < 0.1:
+                print(f"❌ Validation FAILED - No valid pest detected")
+                print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
+                print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
+                return Response({
+                    'error': 'No pest detected in the image. Please try another image with clearer pest visibility.',
+                    'retry': True,
+                    'debug': {
+                        'pest_name': pest_name,
+                        'confidence': confidence,
+                        'ml_response': analysis
+                    }
+                }, status=400)
+            
+            print(f"✅ Validation PASSED - Saving detection")
+            print(f"   pest_name: '{pest_name}'")
+            print(f"   confidence: {confidence}")
+
+            # Only save if we have a valid detection
             detection = PestDetection.objects.create(
                 user=request.user,
                 image=image,
                 crop_type=crop_type,
-                pest_name=analysis.get('pest_name', 'Unknown Pest'),
+                pest_name=pest_name,  # Use validated pest_name
                 pest_type=analysis.get('pest_key', ''),
-                confidence=analysis.get('confidence', 0.0),
+                confidence=confidence,  # Use validated confidence
                 severity=analysis.get('severity', 'low'),
                 latitude=lat,
                 longitude=lng,
@@ -292,11 +317,13 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 'prevention': analysis.get('prevention', []),
                 'num_detections': analysis.get('num_detections', 1)
             })
+            
+            print(f"✅ Returning successful detection response")
             return Response(response_data, status=201)
 
         except Exception as e:
             error_message = str(e)
-            print(f"Detection error: {error_message}")
+            print(f"❌ Detection error: {error_message}")
             
             # Provide helpful error messages
             if "starting up" in error_message or "503" in error_message:
@@ -317,7 +344,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         finally:
             if temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)
-
+                
     def partial_update(self, request, *args, **kwargs):
         detection_id = kwargs.get('pk')
         try:
@@ -454,7 +481,7 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
     def change_role(self, request, pk=None):
         user = self.get_object()
         new_role = request.data.get('role')
-        if new_role in ['admin', 'farmer', 'expert']:
+        if new_role in ['admin', 'farmer']:
             user.role = new_role
             user.save()
             log_activity(request.user, 'changed_user_role', f'User: {user.username}, New role: {new_role}', request)
@@ -465,14 +492,12 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
     def statistics(self, request):
         total_users = User.objects.count()
         farmers = User.objects.filter(role='farmer').count()
-        experts = User.objects.filter(role='expert').count()
         admins = User.objects.filter(role='admin').count()
         verified = User.objects.filter(is_verified=True).count()
         
         return Response({
             'total_users': total_users,
             'farmers': farmers,
-            'experts': experts,
             'admins': admins,
             'verified_users': verified,
             'unverified_users': total_users - verified

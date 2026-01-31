@@ -7,7 +7,6 @@ class User(AbstractUser):
     ROLE_CHOICES = [
         ('admin', 'Administrator'),
         ('farmer', 'Farmer'),
-        ('expert', 'Agricultural Expert'),
     ]
     
     phone = models.CharField(max_length=15, blank=True)
@@ -23,9 +22,6 @@ class User(AbstractUser):
     
     def is_farmer(self):
         return self.role == 'farmer'
-    
-    def is_expert(self):
-        return self.role == 'expert'
 
 # Farm model
 class Farm(models.Model):

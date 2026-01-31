@@ -23,8 +23,3 @@ class IsOwnerOrAdmin(permissions.BasePermission):
         if request.user.role == 'admin':
             return True
         return obj.user == request.user
-
-class IsExpertOrAdmin(permissions.BasePermission):
-    """Experts and admins can access"""
-    def has_permission(self, request, view):
-        return request.user and request.user.is_authenticated and request.user.role in ['expert', 'admin']
