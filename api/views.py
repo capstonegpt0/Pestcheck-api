@@ -203,16 +203,15 @@ class FarmRequestViewSet(viewsets.ModelViewSet):
 # ==================== FARM VIEWSET (UPDATED - READ ONLY FOR FARMERS) ====================
 class FarmViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Farmers can only VIEW their approved farms (Read-Only)
-    Admins can VIEW all farms
+    All authenticated users can VIEW all farms (Read-Only)
+    This enables collaborative pest monitoring across the region
     """
     serializer_class = FarmSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        if self.request.user.role == 'admin':
-            return Farm.objects.all()
-        return Farm.objects.filter(user=self.request.user)
+        # All users can see all farms for collaborative monitoring
+        return Farm.objects.all()
 
 
 # ==================== PEST DETECTION VIEWSET ====================
@@ -227,11 +226,10 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
     
 
     def get_queryset(self):
+        # All users can see all detections for collaborative pest monitoring
         queryset = PestDetection.objects.all()
-        if self.request.user.role != 'admin':
-            queryset = queryset.filter(Q(user=self.request.user) | Q(status='verified'))
 
-        # Geofence filter
+        # Geofence filter - only show detections within Magalang area
         queryset = queryset.filter(
             latitude__gte=MAGALANG_BOUNDS['south'],
             latitude__lte=MAGALANG_BOUNDS['north'],
@@ -239,7 +237,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             longitude__lte=MAGALANG_BOUNDS['east']
         )
 
-        # Optional filters
+        # Optional filter to see only my own detections
         if self.request.query_params.get('my_detections'):
             queryset = queryset.filter(user=self.request.user)
 
@@ -312,15 +310,15 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             print(f"ML API response: {analysis}")
 
-            # ✅ ADD VALIDATION HERE - Check if pest was actually detected
+            # âœ… ADD VALIDATION HERE - Check if pest was actually detected
             pest_name = analysis.get('pest_name', '')
             confidence = analysis.get('confidence', 0.0)
             
-            print(f"🔍 Validation - pest_name: '{pest_name}', confidence: {confidence}")
+            print(f"ðŸ” Validation - pest_name: '{pest_name}', confidence: {confidence}")
             
             # Don't save if no pest was detected
             if not pest_name or pest_name == 'Unknown Pest' or pest_name == '' or confidence < 0.1:
-                print(f"❌ Validation FAILED - No valid pest detected")
+                print(f"âŒ Validation FAILED - No valid pest detected")
                 print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
                 print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
                 return Response({
@@ -333,7 +331,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     }
                 }, status=400)
             
-            print(f"✅ Validation PASSED - Saving detection")
+            print(f"âœ… Validation PASSED - Saving detection")
             print(f"   pest_name: '{pest_name}'")
             print(f"   confidence: {confidence}")
 
@@ -366,12 +364,12 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 'num_detections': analysis.get('num_detections', 1)
             })
             
-            print(f"✅ Returning successful detection response")
+            print(f"âœ… Returning successful detection response")
             return Response(response_data, status=201)
 
         except Exception as e:
             error_message = str(e)
-            print(f"❌ Detection error: {error_message}")
+            print(f"âŒ Detection error: {error_message}")
             
             # Provide helpful error messages
             if "starting up" in error_message or "503" in error_message:
@@ -420,8 +418,12 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
     def heatmap_data(self, request):
         days = int(request.query_params.get('days', 30))
         since = timezone.now() - timedelta(days=days)
-        queryset = PestDetection.objects.all() if request.user.role == 'admin' else PestDetection.objects.filter(Q(user=request.user) | Q(status='verified'))
-        queryset = queryset.filter(active=True).filter(Q(detected_at__gte=since) | Q(reported_at__gte=since))
+        
+        # All users can see all detections for collaborative monitoring
+        queryset = PestDetection.objects.filter(active=True).filter(
+            Q(detected_at__gte=since) | Q(reported_at__gte=since)
+        )
+        
         heatmap_points = [{
             'id': det.id,
             'pest': det.pest_name or det.pest_type,
