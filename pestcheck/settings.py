@@ -152,12 +152,12 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://pestcheck.onrender.com",
-    
-    # ✅ Capacitor support
+
+    # ✅ Capacitor native app origins
     "capacitor://localhost",      # Capacitor iOS
-    "http://localhost",            # Capacitor Android
-    "ionic://localhost",           # Ionic Capacitor
-    "http://10.0.2.2:8000",       # Android emulator
+    "http://localhost",           # Capacitor Android (real device)
+    "ionic://localhost",          # Ionic Capacitor
+    "http://10.0.2.2:8000",      # Android emulator
 ]
 
 # Add Render backend URL to CORS if available
@@ -193,9 +193,13 @@ CORS_ALLOW_METHODS = [
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
-    "https://pestcheck.onrender.com",  
+    "https://pestcheck.onrender.com",
     "https://*.onrender.com",
-    "http://localhost",  # ✅ Capacitor
+
+    # ✅ Capacitor native app origins
+    "capacitor://localhost",      # Capacitor iOS
+    "http://localhost",           # Capacitor Android (real device)
+    "ionic://localhost",          # Ionic Capacitor
 ]
 
 if RENDER_EXTERNAL_HOSTNAME:
@@ -203,7 +207,8 @@ if RENDER_EXTERNAL_HOSTNAME:
 
 # ✅ Capacitor-friendly CSRF settings
 CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token
-CSRF_COOKIE_SAMESITE = 'Lax'  # Less strict for mobile apps
+CSRF_COOKIE_SAMESITE = 'None'  # ✅ Changed from 'Lax' — required for cross-origin cookie to be sent
+CSRF_COOKIE_SECURE = True      # ✅ SameSite=None requires Secure flag
 
 # =========================
 # DRF & JWT
@@ -250,7 +255,6 @@ LOGGING = {
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
