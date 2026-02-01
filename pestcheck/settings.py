@@ -16,6 +16,7 @@ ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
     ".onrender.com",
+    "10.0.2.2",  # ✅ Android emulator
 ]
 
 # Add Render external hostname if available
@@ -36,7 +37,7 @@ INSTALLED_APPS = [
 
     'rest_framework',
     'rest_framework_simplejwt',
-    'rest_framework_simplejwt.token_blacklist',  # Added for token blacklisting
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
 
     'api',
@@ -101,7 +102,6 @@ if DATABASE_URL:
     }
 else:
     # Fallback to SQLite for local development
-    # DO NOT raise error - this allows collectstatic to run during build
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
@@ -143,7 +143,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # =========================
-# CORS
+# CORS - ✅ UPDATED FOR CAPACITOR
 # =========================
 CORS_ALLOW_ALL_ORIGINS = False
 
@@ -152,6 +152,12 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://pestcheck.onrender.com",
+    
+    # ✅ Capacitor support
+    "capacitor://localhost",      # Capacitor iOS
+    "http://localhost",            # Capacitor Android
+    "ionic://localhost",           # Ionic Capacitor
+    "http://10.0.2.2:8000",       # Android emulator
 ]
 
 # Add Render backend URL to CORS if available
@@ -172,18 +178,32 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
 # =========================
-# CSRF
+# CSRF - ✅ UPDATED FOR CAPACITOR
 # =========================
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
     "https://pestcheck.onrender.com",  
     "https://*.onrender.com",
+    "http://localhost",  # ✅ Capacitor
 ]
 
 if RENDER_EXTERNAL_HOSTNAME:
     CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
+
+# ✅ Capacitor-friendly CSRF settings
+CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token
+CSRF_COOKIE_SAMESITE = 'Lax'  # Less strict for mobile apps
 
 # =========================
 # DRF & JWT
