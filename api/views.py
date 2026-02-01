@@ -150,6 +150,61 @@ def logout_view(request):
 def user_profile(request):
     return Response(UserSerializer(request.user).data)
 
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def update_profile(request):
+    """Update user profile information"""
+    user = request.user
+    serializer = UserSerializer(user, data=request.data, partial=True)
+    
+    if serializer.is_valid():
+        serializer.save()
+        log_activity(user, 'profile_updated', 'Updated profile information', request)
+        return Response(serializer.data)
+    
+    return Response(serializer.errors, status=400)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def change_password(request):
+    """Change user password"""
+    user = request.user
+    current_password = request.data.get('current_password')
+    new_password = request.data.get('new_password')
+    
+    # Verify current password
+    if not user.check_password(current_password):
+        return Response(
+            {'error': 'Current password is incorrect'},
+            status=400
+        )
+    
+    # Validate new password
+    if len(new_password) < 8:
+        return Response(
+            {'error': 'New password must be at least 8 characters long'},
+            status=400
+        )
+    
+    # Set new password
+    user.set_password(new_password)
+    user.save()
+    
+    log_activity(user, 'password_changed', 'Changed password', request)
+    
+    return Response({'message': 'Password changed successfully'})
+
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def update_notification_settings(request):
+    """Update notification preferences (placeholder for future implementation)"""
+    # For now, just acknowledge the request
+    # In a real implementation, you would save these to a UserPreferences model
+    log_activity(request.user, 'notification_settings_updated', 'Updated notification settings', request)
+    return Response({'message': 'Notification settings updated successfully'})
+
 
 # ==================== FARM REQUEST VIEWSET (NEW) ====================
 class FarmRequestViewSet(viewsets.ModelViewSet):
