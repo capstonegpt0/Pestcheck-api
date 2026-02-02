@@ -16,8 +16,7 @@ ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
     ".onrender.com",
-    "10.0.2.2",  # ✅ Android emulator
-    "10.0.2.2",  # ✅ Android emulator
+    "10.0.2.2",  # Android emulator
 ]
 
 # Add Render external hostname if available
@@ -45,16 +44,18 @@ INSTALLED_APPS = [
 ]
 
 # =========================
-# MIDDLEWARE
+# MIDDLEWARE - ✅ UPDATED FOR CAPACITOR
 # =========================
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # MUST BE FIRST
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
-
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-
+    
+    # ✅ Custom middleware to exempt /api/ from CSRF
+    'pestcheck.middleware.CsrfExemptMiddleware',
+    
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -144,35 +145,28 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # =========================
-# CORS - ✅ UPDATED FOR CAPACITOR
-# CORS - ✅ UPDATED FOR CAPACITOR
+# CORS - ✅ FIXED FOR CAPACITOR
 # =========================
-CORS_ALLOW_ALL_ORIGINS = False
+# ✅ CRITICAL: Allow all origins for Capacitor
+CORS_ALLOW_ALL_ORIGINS = True
 
+# Keep this for documentation
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://pestcheck.onrender.com",
-
-    # ✅ Capacitor native app origins
-    "capacitor://localhost",      # Capacitor iOS
-    "http://localhost",           # Capacitor Android (real device)
-    "ionic://localhost",          # Ionic Capacitor
-    "http://10.0.2.2:8000",      # Android emulator
-
-    # ✅ Capacitor native app origins
-    "capacitor://localhost",      # Capacitor iOS
-    "http://localhost",           # Capacitor Android (real device)
-    "ionic://localhost",          # Ionic Capacitor
-    "http://10.0.2.2:8000",      # Android emulator
+    "capacitor://localhost",
+    "http://localhost",
+    "ionic://localhost",
+    "http://10.0.2.2:8000",
 ]
 
-# Add Render backend URL to CORS if available
 if RENDER_EXTERNAL_HOSTNAME:
     CORS_ALLOWED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
 
-CORS_ALLOW_CREDENTIALS = True
+# ✅ CRITICAL: Must be False for Capacitor
+CORS_ALLOW_CREDENTIALS = False
 
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -195,53 +189,30 @@ CORS_ALLOW_METHODS = [
     'PUT',
 ]
 
-CORS_ALLOW_METHODS = [
-    'DELETE',
-    'GET',
-    'OPTIONS',
-    'PATCH',
-    'POST',
-    'PUT',
-]
-
 # =========================
-# CSRF - ✅ UPDATED FOR CAPACITOR
-# CSRF - ✅ FIXED FOR CAPACITOR
+# CSRF - ✅ DISABLED FOR API ENDPOINTS
 # =========================
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
     "https://pestcheck.onrender.com",
-    "https://pestcheck.onrender.com",
     "https://*.onrender.com",
-
-    # ✅ Capacitor native app origins
-    "capacitor://localhost",      # Capacitor iOS
-    "http://localhost",           # Capacitor Android (real device)
-    "ionic://localhost",          # Ionic Capacitor
-
-    # ✅ Capacitor native app origins
-    "capacitor://localhost",      # Capacitor iOS
-    "http://localhost",           # Capacitor Android (real device)
-    "ionic://localhost",          # Ionic Capacitor
+    "capacitor://localhost",
+    "http://localhost",
+    "ionic://localhost",
 ]
 
 if RENDER_EXTERNAL_HOSTNAME:
     CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
 
-# ✅ Capacitor-friendly CSRF settings
-CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token
-CSRF_COOKIE_SAMESITE = 'None'  # ✅ Changed from 'Lax' — required for cross-origin cookie to be sent
-CSRF_COOKIE_SECURE = True      # ✅ SameSite=None requires Secure flag
-
-# ✅ FIXED: Capacitor-friendly CSRF settings
-CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token
-CSRF_COOKIE_SAMESITE = 'Lax'  # ✅ Changed from 'None' - works better with Capacitor
-CSRF_COOKIE_SECURE = not DEBUG  # ✅ Only require HTTPS in production
+# CSRF settings (but /api/ is exempted via middleware)
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_NAME = 'csrftoken'
 CSRF_USE_SESSIONS = False
 
-# Session cookies also need to work with Capacitor
+# Session cookies
 SESSION_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SAMESITE = 'Lax'
 
@@ -265,6 +236,12 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
+    
+    # Additional settings for better mobile compatibility
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
 }
 
 # =========================
@@ -281,6 +258,13 @@ LOGGING = {
     'root': {
         'handlers': ['console'],
         'level': 'INFO',
+    },
+    'loggers': {
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
     },
 }
 
