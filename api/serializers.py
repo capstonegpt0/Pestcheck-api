@@ -65,20 +65,61 @@ class FarmRequestSerializer(serializers.ModelSerializer):
         ]
 
 class FarmSerializer(serializers.ModelSerializer):
+    """
+    Farm serializer with calculated status fields.
+    
+    IMPORTANT: Status is NOT stored in the database. It is calculated dynamically
+    based on the number of active, verified detections associated with the farm.
+    
+    Calculated fields:
+    - total_infestation_count: All verified detections (including resolved)
+    - active_infestation_count: Currently active verified detections
+    - calculated_status: Status level (low/moderate/high/critical) or None
+    - status_display: Human-readable status text
+    - status_color: CSS color class for status display
+    - should_show_status: Boolean indicating if status should be shown
+    """
     user_name = serializers.CharField(source='user.username', read_only=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True, allow_null=True)
+    
+    # Legacy field (for backward compatibility) - shows total verified detections
     infestation_count = serializers.SerializerMethodField()
+    
+    # New calculated fields for dynamic status
+    active_infestation_count = serializers.IntegerField(source='active_infestation_count', read_only=True)
+    total_infestation_count = serializers.IntegerField(source='total_infestation_count', read_only=True)
+    calculated_status = serializers.CharField(source='calculated_status', read_only=True, allow_null=True)
+    status_display = serializers.CharField(source='status_display', read_only=True)
+    status_color = serializers.CharField(source='status_color', read_only=True)
+    should_show_status = serializers.BooleanField(source='should_show_status', read_only=True)
 
     class Meta:
         model = Farm
         fields = [
             'id', 'name', 'lat', 'lng', 'size', 'crop_type', 'is_verified', 
-            'user_name', 'created_by_name', 'created_at', 'updated_at', 'infestation_count'
+            'user_name', 'created_by_name', 'created_at', 'updated_at',
+            # Infestation counts
+            'infestation_count',  # Legacy field
+            'active_infestation_count',
+            'total_infestation_count',
+            # Calculated status fields
+            'calculated_status',
+            'status_display',
+            'status_color',
+            'should_show_status'
         ]
-        read_only_fields = ['id', 'is_verified', 'user_name', 'created_by_name', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'is_verified', 'user_name', 'created_by_name', 'created_at', 'updated_at',
+            'infestation_count', 'active_infestation_count', 'total_infestation_count',
+            'calculated_status', 'status_display', 'status_color', 'should_show_status'
+        ]
 
     def get_infestation_count(self, obj):
-        return obj.detections.filter(status='verified').count()
+        """
+        Legacy method for backward compatibility.
+        Returns total verified detections (same as total_infestation_count).
+        """
+        return obj.total_infestation_count
 
 class PestDetectionSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.username', read_only=True)
@@ -124,8 +165,9 @@ class AlertSerializer(serializers.ModelSerializer):
 
 class UserActivitySerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.username', read_only=True)
+    user_role = serializers.CharField(source='user.role', read_only=True)
     
     class Meta:
         model = UserActivity
-        fields = ['id', 'user', 'user_name', 'action', 'details', 'ip_address', 'timestamp']
+        fields = ['id', 'user', 'user_name', 'user_role', 'action', 'details', 'ip_address', 'timestamp']
         read_only_fields = ['id', 'timestamp']
