@@ -64,13 +64,7 @@ class FarmRequest(models.Model):
 
 # Farm model - Created only by admin when approving requests
 class Farm(models.Model):
-    """
-    Farm locations for users - Created only by admin approval.
-    
-    IMPORTANT: Farms do NOT have a status field stored in the database.
-    Status is calculated dynamically based on the number of active detections.
-    See the calculated_status property for status logic.
-    """
+    """Farm locations for users - Created only by admin approval"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='farms')
     name = models.CharField(max_length=200)
     lat = models.FloatField(verbose_name='Latitude')
@@ -88,114 +82,6 @@ class Farm(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.user.username}"
-    
-    # ==================== CALCULATED STATUS PROPERTIES ====================
-    # These properties calculate farm status dynamically based on detections.
-    # NO status is stored in the database.
-    
-    @property
-    def active_infestation_count(self):
-        """
-        Count of currently active, verified pest detections on this farm.
-        This is the primary metric used to calculate farm status.
-        """
-        return self.detections.filter(active=True, status='verified').count()
-    
-    @property
-    def total_infestation_count(self):
-        """
-        Total count of all verified detections (including resolved ones).
-        Useful for historical tracking.
-        """
-        return self.detections.filter(status='verified').count()
-    
-    @property
-    def calculated_status(self):
-        """
-        Calculate farm status based on active detection count.
-        Returns None until the minimum threshold is reached.
-        
-        Thresholds:
-        - None: 0-2 detections (below threshold, no status shown)
-        - 'low': 3-4 detections
-        - 'moderate': 5-6 detections
-        - 'high': 7-9 detections
-        - 'critical': 10+ detections
-        
-        Returns:
-            str or None: Status level or None if below threshold
-        """
-        MINIMUM_THRESHOLD = 3
-        count = self.active_infestation_count
-        
-        # NO STATUS until minimum threshold is reached
-        if count < MINIMUM_THRESHOLD:
-            return None
-        
-        # Calculate status based on count
-        if count >= 10:
-            return 'critical'
-        elif count >= 7:
-            return 'high'
-        elif count >= 5:
-            return 'moderate'
-        elif count >= MINIMUM_THRESHOLD:
-            return 'low'
-        
-        return None
-    
-    @property
-    def status_display(self):
-        """
-        Get human-readable status display text.
-        Returns empty string if no status (below threshold).
-        
-        Returns:
-            str: Human-readable status or empty string
-        """
-        status = self.calculated_status
-        if not status:
-            return ''
-        
-        status_map = {
-            'low': 'Low Risk - Early Detection',
-            'moderate': 'Moderate Risk - Action Needed',
-            'high': 'High Risk - Monitor Closely',
-            'critical': 'Critical - High Infestation'
-        }
-        return status_map.get(status, '')
-    
-    @property
-    def status_color(self):
-        """
-        Get color code for status display.
-        Returns empty string if no status.
-        
-        Returns:
-            str: CSS color class or empty string
-        """
-        status = self.calculated_status
-        if not status:
-            return ''
-        
-        color_map = {
-            'low': 'text-green-600',
-            'moderate': 'text-yellow-600',
-            'high': 'text-orange-600',
-            'critical': 'text-red-700'
-        }
-        return color_map.get(status, '')
-    
-    @property
-    def should_show_status(self):
-        """
-        Determine if status should be displayed to users.
-        Returns False if detection count is below threshold.
-        
-        Returns:
-            bool: True if status should be shown, False otherwise
-        """
-        return self.calculated_status is not None
 
 # PestDetection model
 class PestDetection(models.Model):
