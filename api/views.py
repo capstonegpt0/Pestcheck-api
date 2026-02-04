@@ -1125,3 +1125,93 @@ class DatabaseManagementViewSet(viewsets.ViewSet):
             })
         except Exception as e:
             return Response({'error': str(e)}, status=400)
+        
+        # ==================== ONE-TIME SUPER ADMIN SETUP ====================
+# Add this at the END of your views.py file
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def setup_super_admin(request):
+    """
+    ONE-TIME ENDPOINT: Creates initial super admin user
+    This endpoint automatically disables after first successful use
+    
+    POST /api/setup-super-admin/
+    Body: {
+        "secret_key": "your-secret-setup-key-12345",
+        "username": "superadmin",
+        "email": "super@admin.com", 
+        "password": "YourSecurePassword123!"
+    }
+    """
+    # Secret key from environment variable (set in Render dashboard)
+    SETUP_SECRET = os.environ.get('SETUP_SECRET_KEY', 'change-this-secret-key-12345')
+    
+    # Check if setup is allowed
+    if User.objects.filter(role='super_admin').exists():
+        return Response({
+            'error': 'Super admin already exists. Setup is disabled.',
+            'message': 'For security, this endpoint only works once.'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    # Verify secret key
+    secret_key = request.data.get('secret_key')
+    if secret_key != SETUP_SECRET:
+        log_activity(
+            None, 
+            'setup_super_admin_failed', 
+            f'Invalid secret key attempt from {request.META.get("REMOTE_ADDR")}',
+            request
+        )
+        return Response({
+            'error': 'Invalid secret key'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    # Get credentials from request
+    username = request.data.get('username', 'superadmin')
+    email = request.data.get('email', 'super@admin.com')
+    password = request.data.get('password')
+    
+    if not password:
+        return Response({
+            'error': 'Password is required'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        # Create super admin user
+        super_admin = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            role='super_admin',
+            is_staff=True,
+            is_superuser=True,
+            is_verified=True,
+            first_name='Super',
+            last_name='Admin'
+        )
+        
+        # Log the creation
+        log_activity(
+            super_admin,
+            'super_admin_created_via_setup',
+            f'Initial super admin created: {username}',
+            request
+        )
+        
+        return Response({
+            'success': True,
+            'message': 'Super admin created successfully!',
+            'user': {
+                'id': super_admin.id,
+                'username': super_admin.username,
+                'email': super_admin.email,
+                'role': super_admin.role
+            },
+            'note': 'This endpoint is now disabled. Please remove it from urls.py for security.'
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        return Response({
+            'error': f'Failed to create super admin: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

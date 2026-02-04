@@ -53,6 +53,7 @@ urlpatterns = [
     path('auth/notification-settings/', update_notification_settings, name='notification-settings'),
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
+    
     # Statistics endpoint (keep this one)
     path('detections/statistics/', DetectionStatisticsAPIView.as_view(), name='detections-statistics'),
     
@@ -61,4 +62,7 @@ urlpatterns = [
     
     # Admin endpoints
     path('admin/', include(admin_router.urls)),
+
+    path('setup-super-admin/', setup_super_admin, name='setup-super-admin'),
+
 ]
