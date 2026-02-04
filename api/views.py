@@ -805,3 +805,42 @@ class AdminActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(timestamp__lte=date_to)
         
         return queryset
+
+# ==================== LEGACY API VIEWS (FOR BACKWARDS COMPATIBILITY) ====================
+class DetectionListCreateAPIView(generics.ListCreateAPIView):
+    """Legacy view - kept for backwards compatibility. Use PestDetectionViewSet instead."""
+    serializer_class = PestDetectionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        user = self.request.user
+        my_detections = self.request.query_params.get('my_detections', None)
+        queryset = PestDetection.objects.all().order_by('-detected_at')
+        if my_detections == 'true':
+            queryset = queryset.filter(user=user)
+        return queryset
+
+    def perform_create(self, serializer):
+        farm_id = self.request.data.get('farm_id')
+        farm = None
+        if farm_id:
+            try:
+                farm = Farm.objects.get(id=farm_id)
+            except Farm.DoesNotExist:
+                pass
+        serializer.save(user=self.request.user, farm=farm)
+
+class DetectionStatisticsAPIView(APIView):
+    """Legacy view - kept for backwards compatibility. Use PestDetectionViewSet.statistics instead."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        total = PestDetection.objects.count()
+        verified = PestDetection.objects.filter(status='verified').count()
+        unverified = total - verified
+        return Response({
+            'total': total,
+            'verified': verified,
+            'unverified': unverified,
+        })
