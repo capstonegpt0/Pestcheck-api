@@ -22,7 +22,7 @@ from .serializers import (
     FarmSerializer, FarmRequestSerializer, PestDetectionSerializer, PestInfoSerializer,
     InfestationReportSerializer, AlertSerializer, UserActivitySerializer
 )
-from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin, IsSuperAdmin, IsSuperAdminOrAdmin
+from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
 
 # ==================== CONSTANTS ====================
 MAGALANG_BOUNDS = {
@@ -569,16 +569,10 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
 # [Keep all your existing admin viewsets - they're already correct]
 
 class AdminUserManagementViewSet(viewsets.ModelViewSet):
-    """Admin can view users, Super Admin can manage all users"""
+    """Admin can manage all users"""
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [IsSuperAdminOrAdmin]
-    
-    def get_permissions(self):
-        """Super admin for edit/delete/create, admin or super admin for view"""
-        if self.action in ['update', 'partial_update', 'destroy', 'create']:
-            return [IsSuperAdmin()]
-        return [IsSuperAdminOrAdmin()]
+    permission_classes = [IsAdmin]
     
     @action(detail=True, methods=['post'])
     def verify_user(self, request, pk=None):
@@ -592,7 +586,7 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
     def change_role(self, request, pk=None):
         user = self.get_object()
         new_role = request.data.get('role')
-        if new_role in ['admin', 'farmer', 'super_admin']:
+        if new_role in ['admin', 'farmer']:
             user.role = new_role
             user.save()
             log_activity(request.user, 'changed_user_role', f'User: {user.username}, New role: {new_role}', request)
@@ -604,14 +598,12 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
         total_users = User.objects.count()
         farmers = User.objects.filter(role='farmer').count()
         admins = User.objects.filter(role='admin').count()
-        super_admins = User.objects.filter(role='super_admin').count()
         verified = User.objects.filter(is_verified=True).count()
         
         return Response({
             'total_users': total_users,
             'farmers': farmers,
             'admins': admins,
-            'super_admins': super_admins,
             'verified_users': verified,
             'unverified_users': total_users - verified
         })
@@ -619,13 +611,7 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
 class AdminFarmManagementViewSet(viewsets.ModelViewSet):
     queryset = Farm.objects.all()
     serializer_class = FarmSerializer
-    permission_classes = [IsSuperAdminOrAdmin]
-    
-    def get_permissions(self):
-        """Super admin for edit/delete/create, admin or super admin for view"""
-        if self.action in ['update', 'partial_update', 'destroy', 'create']:
-            return [IsSuperAdmin()]
-        return [IsSuperAdminOrAdmin()]
+    permission_classes = [IsAdmin]
     
     @action(detail=True, methods=['post'])
     def verify_farm(self, request, pk=None):
@@ -654,13 +640,7 @@ class AdminFarmManagementViewSet(viewsets.ModelViewSet):
 class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
     queryset = PestDetection.objects.all()
     serializer_class = PestDetectionSerializer
-    permission_classes = [IsSuperAdminOrAdmin]
-    
-    def get_permissions(self):
-        """Super admin for edit/delete/create, admin or super admin for view and verify/reject"""
-        if self.action in ['update', 'partial_update', 'destroy', 'create']:
-            return [IsSuperAdmin()]
-        return [IsSuperAdminOrAdmin()]
+    permission_classes = [IsAdmin]
     
     @action(detail=True, methods=['post'])
     def verify_detection(self, request, pk=None):
@@ -714,16 +694,10 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
         
 # ==================== ADMIN FARM REQUEST MANAGEMENT (NEW) ====================
 class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
-    """Admin can view and approve/reject, Super Admin can manage all farm requests"""
+    """Admin can manage all farm requests and approve/reject them"""
     queryset = FarmRequest.objects.all()
     serializer_class = FarmRequestSerializer
-    permission_classes = [IsSuperAdminOrAdmin]
-    
-    def get_permissions(self):
-        """Super admin for edit/delete/create, admin or super admin for view and approve/reject"""
-        if self.action in ['update', 'partial_update', 'destroy', 'create']:
-            return [IsSuperAdmin()]
-        return [IsSuperAdminOrAdmin()]
+    permission_classes = [IsAdmin]
     
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
@@ -811,13 +785,7 @@ class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
 class AdminPestInfoManagementViewSet(viewsets.ModelViewSet):
     queryset = PestInfo.objects.all()
     serializer_class = PestInfoSerializer
-    permission_classes = [IsSuperAdminOrAdmin]
-    
-    def get_permissions(self):
-        """Super admin for edit/delete/create, admin or super admin for view"""
-        if self.action in ['update', 'partial_update', 'destroy', 'create']:
-            return [IsSuperAdmin()]
-        return [IsSuperAdminOrAdmin()]
+    permission_classes = [IsAdmin]
     
     def perform_create(self, serializer):
         pest_info = serializer.save(created_by=self.request.user)
@@ -835,13 +803,7 @@ class AdminPestInfoManagementViewSet(viewsets.ModelViewSet):
 class AdminAlertManagementViewSet(viewsets.ModelViewSet):
     queryset = Alert.objects.all()
     serializer_class = AlertSerializer
-    permission_classes = [IsSuperAdminOrAdmin]
-    
-    def get_permissions(self):
-        """Super admin for edit/delete/create, admin or super admin for view"""
-        if self.action in ['update', 'partial_update', 'destroy', 'create']:
-            return [IsSuperAdmin()]
-        return [IsSuperAdminOrAdmin()]
+    permission_classes = [IsAdmin]
     
     def perform_create(self, serializer):
         alert = serializer.save(created_by=self.request.user)
@@ -859,7 +821,7 @@ class AdminAlertManagementViewSet(viewsets.ModelViewSet):
 class AdminActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = UserActivity.objects.all()
     serializer_class = UserActivitySerializer
-    permission_classes = [IsSuperAdminOrAdmin]
+    permission_classes = [IsAdmin]
     
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -880,138 +842,3 @@ class AdminActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(timestamp__lte=date_to)
         
         return queryset
-
-
-# ==================== SUPER ADMIN DATABASE MANAGEMENT ====================
-class SuperAdminDatabaseViewSet(viewsets.ViewSet):
-    """
-    Super Admin only: Full database management access
-    Provides CRUD operations for all models
-    """
-    permission_classes = [IsSuperAdmin]
-    
-    @action(detail=False, methods=['get'])
-    def models_list(self, request):
-        """Get list of all available models"""
-        models = {
-            'users': {'model': 'User', 'count': User.objects.count()},
-            'farms': {'model': 'Farm', 'count': Farm.objects.count()},
-            'farm_requests': {'model': 'FarmRequest', 'count': FarmRequest.objects.count()},
-            'pest_detections': {'model': 'PestDetection', 'count': PestDetection.objects.count()},
-            'pest_info': {'model': 'PestInfo', 'count': PestInfo.objects.count()},
-            'infestation_reports': {'model': 'InfestationReport', 'count': InfestationReport.objects.count()},
-            'alerts': {'model': 'Alert', 'count': Alert.objects.count()},
-            'user_activities': {'model': 'UserActivity', 'count': UserActivity.objects.count()},
-        }
-        return Response(models)
-    
-    @action(detail=False, methods=['get'], url_path='model/(?P<model_name>[^/.]+)')
-    def get_model_data(self, request, model_name=None):
-        """Get all data for a specific model"""
-        model_map = {
-            'users': (User, UserSerializer),
-            'farms': (Farm, FarmSerializer),
-            'farm_requests': (FarmRequest, FarmRequestSerializer),
-            'pest_detections': (PestDetection, PestDetectionSerializer),
-            'pest_info': (PestInfo, PestInfoSerializer),
-            'infestation_reports': (InfestationReport, InfestationReportSerializer),
-            'alerts': (Alert, AlertSerializer),
-            'user_activities': (UserActivity, UserActivitySerializer),
-        }
-        
-        if model_name not in model_map:
-            return Response({'error': 'Invalid model name'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        model, serializer_class = model_map[model_name]
-        queryset = model.objects.all()
-        
-        # Pagination
-        page = int(request.query_params.get('page', 1))
-        page_size = int(request.query_params.get('page_size', 50))
-        start = (page - 1) * page_size
-        end = start + page_size
-        
-        total = queryset.count()
-        data = queryset[start:end]
-        serializer = serializer_class(data, many=True)
-        
-        return Response({
-            'total': total,
-            'page': page,
-            'page_size': page_size,
-            'data': serializer.data
-        })
-    
-    @action(detail=False, methods=['post'], url_path='model/(?P<model_name>[^/.]+)/bulk-delete')
-    def bulk_delete(self, request, model_name=None):
-        """Bulk delete records"""
-        model_map = {
-            'users': User,
-            'farms': Farm,
-            'farm_requests': FarmRequest,
-            'pest_detections': PestDetection,
-            'pest_info': PestInfo,
-            'infestation_reports': InfestationReport,
-            'alerts': Alert,
-            'user_activities': UserActivity,
-        }
-        
-        if model_name not in model_map:
-            return Response({'error': 'Invalid model name'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        ids = request.data.get('ids', [])
-        if not ids:
-            return Response({'error': 'No IDs provided'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        model = model_map[model_name]
-        deleted_count, _ = model.objects.filter(id__in=ids).delete()
-        
-        log_activity(
-            request.user, 
-            'bulk_delete', 
-            f'Deleted {deleted_count} records from {model_name}', 
-            request
-        )
-        
-        return Response({
-            'message': f'Successfully deleted {deleted_count} records',
-            'deleted_count': deleted_count
-        })
-    
-    @action(detail=False, methods=['get'])
-    def dashboard_stats(self, request):
-        """Get comprehensive dashboard statistics"""
-        stats = {
-            'users': {
-                'total': User.objects.count(),
-                'farmers': User.objects.filter(role='farmer').count(),
-                'admins': User.objects.filter(role='admin').count(),
-                'super_admins': User.objects.filter(role='super_admin').count(),
-                'verified': User.objects.filter(is_verified=True).count(),
-            },
-            'farms': {
-                'total': Farm.objects.count(),
-                'verified': Farm.objects.filter(is_verified=True).count(),
-            },
-            'detections': {
-                'total': PestDetection.objects.count(),
-                'pending': PestDetection.objects.filter(status='pending').count(),
-                'verified': PestDetection.objects.filter(status='verified').count(),
-                'rejected': PestDetection.objects.filter(status='rejected').count(),
-            },
-            'farm_requests': {
-                'total': FarmRequest.objects.count(),
-                'pending': FarmRequest.objects.filter(status='pending').count(),
-                'approved': FarmRequest.objects.filter(status='approved').count(),
-                'rejected': FarmRequest.objects.filter(status='rejected').count(),
-            },
-            'alerts': {
-                'total': Alert.objects.count(),
-                'active': Alert.objects.filter(is_active=True).count(),
-            },
-            'recent_activities': UserActivitySerializer(
-                UserActivity.objects.all()[:10], 
-                many=True
-            ).data
-        }
-        return Response(stats)
