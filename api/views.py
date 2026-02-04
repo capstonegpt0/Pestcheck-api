@@ -8,11 +8,11 @@ from django.db.models import Count, Q
 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from .models import PestDetection, Farm
 from .serializers import PestDetectionSerializer
 from rest_framework import viewsets, status, generics, permissions
-from rest_framework.decorators import api_view, permission_classes, action
+from rest_framework.decorators import api_view, permission_classes, action, parser_classes as parser_classes_decorator
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
@@ -414,113 +414,162 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             }, status=500)
 
     @action(detail=False, methods=['post'], url_path='manual-report')
+    @parser_classes_decorator([JSONParser])
     def manual_report(self, request):
         """
         Create a manual infestation report without requiring an image.
         This is used when farmers want to report infestations from the map.
         """
         try:
-            # Extract data
-            pest_name = request.data.get('pest', '')
-            severity = request.data.get('severity', 'low')
-            lat = request.data.get('latitude', 0)
-            lng = request.data.get('longitude', 0)
-            address = request.data.get('address', '')
+            # Extract and validate data with defaults
+            pest_name = str(request.data.get('pest', '')).strip()
+            severity = str(request.data.get('severity', 'low')).strip().lower()
+            address = str(request.data.get('address', 'Magalang, Pampanga')).strip()
+            description = str(request.data.get('description', '')).strip()
+            crop_type = str(request.data.get('crop_type', 'rice')).strip().lower()
+            
+            # Handle farm_id safely
             farm_id = request.data.get('farm_id')
-            description = request.data.get('description', '')
-            crop_type = request.data.get('crop_type', 'rice')
-
-            # Validate latitude/longitude
+            
+            # Handle latitude/longitude safely
             try:
-                lat = float(lat)
-                lng = float(lng)
-            except (ValueError, TypeError):
+                lat = float(request.data.get('latitude', 0))
+                lng = float(request.data.get('longitude', 0))
+            except (ValueError, TypeError) as e:
+                print(f"❌ Invalid coordinates: lat={request.data.get('latitude')}, lng={request.data.get('longitude')}")
                 return Response({
-                    'error': 'Invalid latitude or longitude'
+                    'error': 'Invalid latitude or longitude values'
                 }, status=400)
+
+            print(f"📝 Manual report request received")
+            print(f"   Data received: {request.data}")
+            print(f"   pest_name: '{pest_name}'")
+            print(f"   severity: '{severity}'")
+            print(f"   crop_type: '{crop_type}'")
+            print(f"   lat: {lat}, lng: {lng}")
+            print(f"   farm_id: {farm_id}")
 
             # Validate required fields
-            if not pest_name:
+            if not pest_name or pest_name == '':
+                print(f"❌ Pest name is empty")
                 return Response({
-                    'error': 'Pest type is required'
+                    'error': 'Pest type is required and cannot be empty'
                 }, status=400)
 
-            if not lat or not lng:
+            if lat == 0 or lng == 0:
+                print(f"❌ Coordinates are zero")
                 return Response({
-                    'error': 'Location is required'
+                    'error': 'Valid location coordinates are required'
                 }, status=400)
 
             # Get farm if provided
             farm = None
             if farm_id:
                 try:
-                    farm = Farm.objects.get(id=farm_id)
-                    # Use farm's crop type if available, normalize to lowercase
-                    if farm.crop_type:
-                        farm_crop = str(farm.crop_type).lower()
-                        # Ensure it's a valid choice
+                    farm_id_int = int(farm_id)
+                    farm = Farm.objects.get(id=farm_id_int)
+                    print(f"✓ Found farm: {farm.name}")
+                    
+                    # Try to get farm's crop type
+                    if hasattr(farm, 'crop_type') and farm.crop_type:
+                        farm_crop = str(farm.crop_type).strip().lower()
+                        print(f"   Farm crop type: '{farm_crop}'")
+                        # Only use if it's valid
                         if farm_crop in ['rice', 'corn']:
                             crop_type = farm_crop
+                            print(f"   Using farm crop type: {crop_type}")
+                except (ValueError, TypeError) as e:
+                    print(f"⚠️ Invalid farm_id format: {farm_id} - {e}")
                 except Farm.DoesNotExist:
-                    pass
+                    print(f"⚠️ Farm {farm_id} not found")
+                except Exception as e:
+                    print(f"⚠️ Error getting farm: {e}")
 
-            # Normalize crop_type to ensure it's valid
-            crop_type = str(crop_type).lower()
+            # Normalize and validate crop_type
             if crop_type not in ['rice', 'corn']:
-                crop_type = 'rice'  # Default fallback
+                print(f"⚠️ Invalid crop_type '{crop_type}', defaulting to 'rice'")
+                crop_type = 'rice'
 
-            # Normalize severity
-            severity = str(severity).lower()
+            # Normalize and validate severity
             if severity not in ['low', 'medium', 'high', 'critical']:
-                severity = 'low'  # Default fallback
+                print(f"⚠️ Invalid severity '{severity}', defaulting to 'low'")
+                severity = 'low'
 
-            print(f"📝 Creating manual infestation report")
-            print(f"   pest: {pest_name}")
+            print(f"✓ Validated data:")
+            print(f"   pest_name: {pest_name}")
             print(f"   severity: {severity}")
             print(f"   crop_type: {crop_type}")
             print(f"   location: {lat}, {lng}")
+            print(f"   farm: {farm.id if farm else None}")
 
-            # Create detection without image
-            detection = PestDetection.objects.create(
-                user=request.user,
-                farm=farm,
-                image=None,  # No image for manual reports
-                crop_type=crop_type,
-                pest_name=pest_name,
-                pest_type=pest_name,
-                confidence=0.0,  # Manual report, no ML confidence
-                severity=severity,
-                latitude=lat,
-                longitude=lng,
-                address=address,
-                description=description,
-                status='pending',
-                detected_at=timezone.now()
-            )
+            # Create detection
+            try:
+                detection = PestDetection.objects.create(
+                    user=request.user,
+                    farm=farm,
+                    image=None,
+                    crop_type=crop_type,
+                    pest_name=pest_name,
+                    pest_type=pest_name,
+                    confidence=0.0,
+                    severity=severity,
+                    latitude=lat,
+                    longitude=lng,
+                    address=address if address else 'Magalang, Pampanga',
+                    description=description,
+                    status='pending',
+                    detected_at=timezone.now()
+                )
+                print(f"✅ Detection created successfully - ID: {detection.id}")
+            except Exception as e:
+                import traceback
+                print(f"❌ Database error creating detection:")
+                print(f"   Error: {str(e)}")
+                print(f"   Type: {type(e).__name__}")
+                print(f"   Traceback:\n{traceback.format_exc()}")
+                return Response({
+                    'error': f'Database error: {str(e)}'
+                }, status=500)
             
-            log_activity(
-                request.user, 
-                'manual_infestation_report', 
-                f"Pest: {detection.pest_name}", 
-                request
-            )
+            # Log activity
+            try:
+                log_activity(
+                    request.user, 
+                    'manual_infestation_report', 
+                    f"Pest: {detection.pest_name}", 
+                    request
+                )
+            except Exception as e:
+                print(f"⚠️ Could not log activity: {e}")
+                # Don't fail the request if logging fails
 
-            serializer = self.get_serializer(detection)
-            
-            print(f"✅ Manual report saved - ID: {detection.id}")
-            return Response(serializer.data, status=201)
+            # Serialize response
+            try:
+                serializer = self.get_serializer(detection)
+                response_data = serializer.data
+                print(f"✅ Manual report saved and serialized successfully")
+                return Response(response_data, status=201)
+            except Exception as e:
+                print(f"⚠️ Serialization error: {e}")
+                # Return basic response if serialization fails
+                return Response({
+                    'id': detection.id,
+                    'pest_name': detection.pest_name,
+                    'severity': detection.severity,
+                    'message': 'Report saved successfully'
+                }, status=201)
 
-        except ValueError as e:
-            print(f"❌ Validation error: {e}")
-            return Response({
-                'error': f'Invalid data: {str(e)}'
-            }, status=400)
         except Exception as e:
             import traceback
-            print(f"❌ Manual report error: {e}")
-            print(f"Traceback: {traceback.format_exc()}")
+            error_trace = traceback.format_exc()
+            print(f"❌ CRITICAL ERROR in manual_report:")
+            print(f"   Error message: {str(e)}")
+            print(f"   Error type: {type(e).__name__}")
+            print(f"   Full traceback:\n{error_trace}")
+            
             return Response({
-                'error': f'Failed to save report: {str(e)}'
+                'error': f'Server error: {str(e)}',
+                'type': type(e).__name__
             }, status=500)
                 
     def partial_update(self, request, *args, **kwargs):
