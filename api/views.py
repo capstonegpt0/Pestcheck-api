@@ -412,6 +412,91 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             return Response({
                 'error': f'Failed to save detection: {error_message}',
             }, status=500)
+
+    @action(detail=False, methods=['post'], url_path='manual-report')
+    def manual_report(self, request):
+        """
+        Create a manual infestation report without requiring an image.
+        This is used when farmers want to report infestations from the map.
+        """
+        try:
+            # Extract data
+            pest_name = request.data.get('pest', '')
+            severity = request.data.get('severity', 'low')
+            lat = float(request.data.get('latitude', 0))
+            lng = float(request.data.get('longitude', 0))
+            address = request.data.get('address', '')
+            farm_id = request.data.get('farm_id')
+            description = request.data.get('description', '')
+            crop_type = request.data.get('crop_type', 'rice')
+
+            # Validate required fields
+            if not pest_name:
+                return Response({
+                    'error': 'Pest type is required'
+                }, status=400)
+
+            if not lat or not lng:
+                return Response({
+                    'error': 'Location is required'
+                }, status=400)
+
+            # Get farm if provided
+            farm = None
+            if farm_id:
+                try:
+                    farm = Farm.objects.get(id=farm_id)
+                    # Use farm's crop type if available
+                    if farm.crop_type:
+                        crop_type = farm.crop_type.lower()
+                except Farm.DoesNotExist:
+                    pass
+
+            print(f"📝 Creating manual infestation report")
+            print(f"   pest: {pest_name}")
+            print(f"   severity: {severity}")
+            print(f"   location: {lat}, {lng}")
+
+            # Create detection without image
+            detection = PestDetection.objects.create(
+                user=request.user,
+                farm=farm,
+                image=None,  # No image for manual reports
+                crop_type=crop_type,
+                pest_name=pest_name,
+                pest_type=pest_name,
+                confidence=0.0,  # Manual report, no ML confidence
+                severity=severity,
+                latitude=lat,
+                longitude=lng,
+                address=address,
+                description=description,
+                status='pending',
+                detected_at=timezone.now()
+            )
+            
+            log_activity(
+                request.user, 
+                'manual_infestation_report', 
+                f"Pest: {detection.pest_name}", 
+                request
+            )
+
+            serializer = self.get_serializer(detection)
+            
+            print(f"✅ Manual report saved - ID: {detection.id}")
+            return Response(serializer.data, status=201)
+
+        except ValueError as e:
+            print(f"❌ Validation error: {e}")
+            return Response({
+                'error': f'Invalid data: {str(e)}'
+            }, status=400)
+        except Exception as e:
+            print(f"❌ Manual report error: {e}")
+            return Response({
+                'error': f'Failed to save report: {str(e)}'
+            }, status=500)
                 
     def partial_update(self, request, *args, **kwargs):
         """Update detection severity or notes"""
