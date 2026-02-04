@@ -5,10 +5,9 @@ from django.utils import timezone
 # Custom User model
 class User(AbstractUser):
     ROLE_CHOICES = [
-    ('super_admin', 'Super Administrator'),  # NEW
-    ('admin', 'Administrator'),
-    ('farmer', 'Farmer'),
-]
+        ('admin', 'Administrator'),
+        ('farmer', 'Farmer'),
+    ]
     
     phone = models.CharField(max_length=15, blank=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='farmer')
@@ -17,9 +16,6 @@ class User(AbstractUser):
     
     class Meta:
         db_table = 'users'
-
-    def is_super_admin(self):                                                                                                           
-        return self.role == 'super_admin'
     
     def is_admin(self):
         return self.role == 'admin'
