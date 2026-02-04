@@ -5,6 +5,7 @@ import time
 from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Count, Q
+from django.db import connection
 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
@@ -22,7 +23,7 @@ from .serializers import (
     FarmSerializer, FarmRequestSerializer, PestDetectionSerializer, PestInfoSerializer,
     InfestationReportSerializer, AlertSerializer, UserActivitySerializer
 )
-from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
+from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin, IsSuperAdmin
 
 # ==================== CONSTANTS ====================
 MAGALANG_BOUNDS = {
@@ -842,3 +843,285 @@ class AdminActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(timestamp__lte=date_to)
         
         return queryset
+
+
+# ==================== SUPER ADMIN - DATABASE MANAGEMENT ====================
+class DatabaseManagementViewSet(viewsets.ViewSet):
+    """
+    Super Admin only - Database management interface
+    Allows viewing, editing, and deleting data from all tables
+    """
+    permission_classes = [IsSuperAdmin]
+    
+    @action(detail=False, methods=['get'])
+    def tables(self, request):
+        """Get list of all database tables"""
+        try:
+            tables = connection.introspection.table_names()
+            # Filter out Django internal tables
+            user_tables = [t for t in tables if not t.startswith('django_') 
+                          and not t.startswith('auth_') 
+                          and not t.startswith('sqlite_')]
+            
+            table_info = []
+            for table_name in user_tables:
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                        count = cursor.fetchone()[0]
+                        table_info.append({
+                            'name': table_name,
+                            'count': count
+                        })
+                except Exception as e:
+                    print(f"Error counting {table_name}: {str(e)}")
+                    table_info.append({
+                        'name': table_name,
+                        'count': 0
+                    })
+            
+            # Sort by name
+            table_info.sort(key=lambda x: x['name'])
+            
+            log_activity(request.user, 'super_admin_viewed_tables', f'Viewed {len(table_info)} tables', request)
+            return Response(table_info)
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+    
+    @action(detail=False, methods=['get'])
+    def table_data(self, request):
+        """Get data from a specific table"""
+        table_name = request.query_params.get('table')
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 50))
+        
+        if not table_name:
+            return Response({'error': 'Table name required'}, status=400)
+        
+        # Security: Validate table name exists
+        tables = connection.introspection.table_names()
+        if table_name not in tables:
+            return Response({'error': 'Invalid table name'}, status=400)
+        
+        offset = (page - 1) * page_size
+        
+        try:
+            with connection.cursor() as cursor:
+                # Get column names
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                columns = [row[1] for row in cursor.fetchall()]
+                
+                # Get total count
+                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                total_count = cursor.fetchone()[0]
+                
+                # Get data with pagination
+                cursor.execute(f"SELECT * FROM {table_name} LIMIT {page_size} OFFSET {offset}")
+                rows = cursor.fetchall()
+                
+                data = []
+                for row in rows:
+                    row_dict = {}
+                    for idx, col in enumerate(columns):
+                        value = row[idx]
+                        # Convert datetime to string for JSON serialization
+                        if value is not None and hasattr(value, 'isoformat'):
+                            value = value.isoformat()
+                        row_dict[col] = value
+                    data.append(row_dict)
+            
+            log_activity(request.user, 'super_admin_viewed_table_data', 
+                        f'Table: {table_name}, Page: {page}', request)
+            
+            return Response({
+                'table': table_name,
+                'columns': columns,
+                'data': data,
+                'total_count': total_count,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total_count + page_size - 1) // page_size
+            })
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+    
+    @action(detail=False, methods=['post'])
+    def execute_query(self, request):
+        """Execute a custom SQL query (SELECT only for safety)"""
+        query = request.data.get('query', '').strip()
+        
+        if not query:
+            return Response({'error': 'Query required'}, status=400)
+        
+        # Only allow SELECT queries for safety
+        if not query.upper().startswith('SELECT'):
+            return Response({'error': 'Only SELECT queries allowed'}, status=400)
+        
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(query)
+                columns = [col[0] for col in cursor.description] if cursor.description else []
+                rows = cursor.fetchall()
+                
+                data = []
+                for row in rows:
+                    row_dict = {}
+                    for idx, col in enumerate(columns):
+                        value = row[idx]
+                        # Convert datetime to string
+                        if value is not None and hasattr(value, 'isoformat'):
+                            value = value.isoformat()
+                        row_dict[col] = value
+                    data.append(row_dict)
+            
+            log_activity(request.user, 'super_admin_executed_query', 
+                        f'Query: {query[:100]}...', request)
+            
+            return Response({
+                'columns': columns,
+                'data': data,
+                'count': len(data)
+            })
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+    
+    @action(detail=False, methods=['put'])
+    def update_row(self, request):
+        """Update a row in a table"""
+        table_name = request.data.get('table')
+        row_id = request.data.get('id')
+        updates = request.data.get('updates', {})
+        
+        if not table_name or not row_id:
+            return Response({'error': 'Table name and ID required'}, status=400)
+        
+        # Security: Validate table name
+        tables = connection.introspection.table_names()
+        if table_name not in tables:
+            return Response({'error': 'Invalid table name'}, status=400)
+        
+        # Don't allow updating certain sensitive fields
+        sensitive_fields = ['password', 'is_superuser', 'is_staff']
+        updates = {k: v for k, v in updates.items() if k not in sensitive_fields and k != 'id'}
+        
+        if not updates:
+            return Response({'error': 'No valid fields to update'}, status=400)
+        
+        try:
+            # Build UPDATE query with parameterization for security
+            set_clause = ', '.join([f"{key} = ?" for key in updates.keys()])
+            values = list(updates.values()) + [row_id]
+            
+            with connection.cursor() as cursor:
+                cursor.execute(f"UPDATE {table_name} SET {set_clause} WHERE id = ?", values)
+                connection.commit()
+            
+            log_activity(request.user, 'super_admin_updated_row', 
+                        f'Table: {table_name}, ID: {row_id}, Fields: {list(updates.keys())}', request)
+            
+            return Response({'message': 'Row updated successfully'})
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+    
+    @action(detail=False, methods=['delete'])
+    def delete_row(self, request):
+        """Delete a row from a table"""
+        table_name = request.query_params.get('table')
+        row_id = request.query_params.get('id')
+        
+        if not table_name or not row_id:
+            return Response({'error': 'Table name and ID required'}, status=400)
+        
+        # Security: Validate table name
+        tables = connection.introspection.table_names()
+        if table_name not in tables:
+            return Response({'error': 'Invalid table name'}, status=400)
+        
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"DELETE FROM {table_name} WHERE id = ?", [row_id])
+                connection.commit()
+            
+            log_activity(request.user, 'super_admin_deleted_row', 
+                        f'Table: {table_name}, ID: {row_id}', request)
+            
+            return Response({'message': 'Row deleted successfully'})
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+    
+    @action(detail=False, methods=['post'])
+    def create_row(self, request):
+        """Create a new row in a table"""
+        table_name = request.data.get('table')
+        data = request.data.get('data', {})
+        
+        if not table_name or not data:
+            return Response({'error': 'Table name and data required'}, status=400)
+        
+        # Security: Validate table name
+        tables = connection.introspection.table_names()
+        if table_name not in tables:
+            return Response({'error': 'Invalid table name'}, status=400)
+        
+        # Remove id from data if present (auto-generated)
+        data = {k: v for k, v in data.items() if k != 'id' and v != ''}
+        
+        if not data:
+            return Response({'error': 'No valid data to insert'}, status=400)
+        
+        try:
+            columns = ', '.join(data.keys())
+            placeholders = ', '.join(['?' for _ in data])
+            values = list(data.values())
+            
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})",
+                    values
+                )
+                connection.commit()
+                new_id = cursor.lastrowid
+            
+            log_activity(request.user, 'super_admin_created_row', 
+                        f'Table: {table_name}, New ID: {new_id}', request)
+            
+            return Response({
+                'message': 'Row created successfully',
+                'id': new_id
+            })
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+    
+    @action(detail=False, methods=['get'])
+    def table_schema(self, request):
+        """Get schema information for a table"""
+        table_name = request.query_params.get('table')
+        
+        if not table_name:
+            return Response({'error': 'Table name required'}, status=400)
+        
+        # Security: Validate table name
+        tables = connection.introspection.table_names()
+        if table_name not in tables:
+            return Response({'error': 'Invalid table name'}, status=400)
+        
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                schema = []
+                for row in cursor.fetchall():
+                    schema.append({
+                        'cid': row[0],
+                        'name': row[1],
+                        'type': row[2],
+                        'notnull': row[3],
+                        'default': row[4],
+                        'pk': row[5]
+                    })
+            
+            return Response({
+                'table': table_name,
+                'schema': schema
+            })
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
