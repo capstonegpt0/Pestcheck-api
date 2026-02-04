@@ -8,3 +8,7 @@ pip install -r requirements.txt
 python test_db_connection.py
 
 python manage.py collectstatic --no-input
+
+python manage.py migrate --fake-initial
+
+
