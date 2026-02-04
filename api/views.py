@@ -423,12 +423,21 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             # Extract data
             pest_name = request.data.get('pest', '')
             severity = request.data.get('severity', 'low')
-            lat = float(request.data.get('latitude', 0))
-            lng = float(request.data.get('longitude', 0))
+            lat = request.data.get('latitude', 0)
+            lng = request.data.get('longitude', 0)
             address = request.data.get('address', '')
             farm_id = request.data.get('farm_id')
             description = request.data.get('description', '')
             crop_type = request.data.get('crop_type', 'rice')
+
+            # Validate latitude/longitude
+            try:
+                lat = float(lat)
+                lng = float(lng)
+            except (ValueError, TypeError):
+                return Response({
+                    'error': 'Invalid latitude or longitude'
+                }, status=400)
 
             # Validate required fields
             if not pest_name:
@@ -446,15 +455,29 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if farm_id:
                 try:
                     farm = Farm.objects.get(id=farm_id)
-                    # Use farm's crop type if available
+                    # Use farm's crop type if available, normalize to lowercase
                     if farm.crop_type:
-                        crop_type = farm.crop_type.lower()
+                        farm_crop = str(farm.crop_type).lower()
+                        # Ensure it's a valid choice
+                        if farm_crop in ['rice', 'corn']:
+                            crop_type = farm_crop
                 except Farm.DoesNotExist:
                     pass
+
+            # Normalize crop_type to ensure it's valid
+            crop_type = str(crop_type).lower()
+            if crop_type not in ['rice', 'corn']:
+                crop_type = 'rice'  # Default fallback
+
+            # Normalize severity
+            severity = str(severity).lower()
+            if severity not in ['low', 'medium', 'high', 'critical']:
+                severity = 'low'  # Default fallback
 
             print(f"📝 Creating manual infestation report")
             print(f"   pest: {pest_name}")
             print(f"   severity: {severity}")
+            print(f"   crop_type: {crop_type}")
             print(f"   location: {lat}, {lng}")
 
             # Create detection without image
@@ -493,7 +516,9 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 'error': f'Invalid data: {str(e)}'
             }, status=400)
         except Exception as e:
+            import traceback
             print(f"❌ Manual report error: {e}")
+            print(f"Traceback: {traceback.format_exc()}")
             return Response({
                 'error': f'Failed to save report: {str(e)}'
             }, status=500)
