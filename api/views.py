@@ -584,8 +584,8 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         """Update detection severity or notes"""
         detection = self.get_object()
         
-        # Only allow updating certain fields
-        allowed_fields = ['severity', 'description', 'status']
+        # Only allow updating certain fields - FIXED: Added 'active' to allow resolving infestations
+        allowed_fields = ['severity', 'description', 'status', 'active']
         data = {k: v for k, v in request.data.items() if k in allowed_fields}
         
         serializer = self.get_serializer(detection, data=data, partial=True)
