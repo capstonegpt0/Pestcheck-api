@@ -18,7 +18,7 @@ class User(AbstractUser):
     class Meta:
         db_table = 'users'
 
-    def is_super_admin(self):
+    def is_super_admin(self):                                                                                                           
         return self.role == 'super_admin'
     
     def is_admin(self):

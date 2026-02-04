@@ -62,7 +62,4 @@ urlpatterns = [
     
     # Admin endpoints
     path('admin/', include(admin_router.urls)),
-
-    path('setup-super-admin/', setup_super_admin, name='setup-super-admin'),
-
 ]
