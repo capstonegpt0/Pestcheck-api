@@ -266,6 +266,15 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     parser_classes = (MultiPartParser, FormParser)
 
+    def get_parser_classes(self):
+        """
+        Override parser classes based on the action.
+        manual-report needs JSON, others need multipart/form-data for images.
+        """
+        if self.action == 'manual_report':
+            return [JSONParser]
+        return self.parser_classes
+
     def get_queryset(self):
         if self.request.user.is_admin():
             return PestDetection.objects.all()
@@ -414,7 +423,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             }, status=500)
 
     @action(detail=False, methods=['post'], url_path='manual-report')
-    @parser_classes_decorator([JSONParser])
     def manual_report(self, request):
         """
         Create a manual infestation report without requiring an image.
