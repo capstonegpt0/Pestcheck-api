@@ -9,6 +9,6 @@ python test_db_connection.py
 
 python manage.py collectstatic --no-input
 
-python manage.py create_user.py
+
 
 
