@@ -25,6 +25,14 @@ from .serializers import (
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
 from .utils import get_crop_from_pest
 
+# ✅ NEW: Import proximity alert utilities
+from .proximity_utils import (
+    check_and_create_proximity_alerts,
+    check_proximity_alerts_for_farm,
+    get_proximity_alert_stats,
+    count_recent_detections_near_farm
+)
+
 # ==================== CONSTANTS ====================
 MAGALANG_BOUNDS = {
     'north': 15.2547,
@@ -286,7 +294,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         # All users see all detections for collaborative monitoring
         queryset = PestDetection.objects.all()
 
-        # Geofence filter – only Magalang area
+        # Geofence filter â€“ only Magalang area
         queryset = queryset.filter(
             latitude__gte=MAGALANG_BOUNDS['south'],
             latitude__lte=MAGALANG_BOUNDS['north'],
@@ -367,15 +375,15 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             print(f"ML API response: {analysis}")
 
-            # ✅ ADD VALIDATION HERE - Check if pest was actually detected
+            # âœ… ADD VALIDATION HERE - Check if pest was actually detected
             pest_name = analysis.get('pest_name', '')
             confidence = analysis.get('confidence', 0.0)
             
-            print(f"🔍 Validation - pest_name: '{pest_name}', confidence: {confidence}")
+            print(f"ðŸ” Validation - pest_name: '{pest_name}', confidence: {confidence}")
             
             # Don't save if no pest was detected
             if not pest_name or pest_name == 'Unknown Pest' or pest_name == '' or confidence < 0.1:
-                print(f"❌ Validation FAILED - No valid pest detected")
+                print(f"âŒ Validation FAILED - No valid pest detected")
                 print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
                 print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
                 return Response({
@@ -388,7 +396,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     }
                 }, status=400)
             
-            print(f"✅ Validation PASSED - Saving detection")
+            print(f"âœ… Validation PASSED - Saving detection")
             print(f"   pest_name: '{pest_name}'")
             print(f"   confidence: {confidence}")
 
@@ -431,12 +439,12 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 'num_detections': analysis.get('num_detections', 1)
             })
             
-            print(f"✅ Returning successful detection response")
+            print(f"âœ… Returning successful detection response")
             return Response(response_data, status=201)
 
         except Exception as e:
             error_message = str(e)
-            print(f"❌ Detection error: {error_message}")
+            print(f"âŒ Detection error: {error_message}")
             
             # Provide helpful error messages
             if "starting up" in error_message or "503" in error_message:
@@ -465,7 +473,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if instance.user != request.user and request.user.role != 'admin':
                 return Response({'error': 'Permission denied'}, status=403)
 
-            # ✅ NEW: Handle farm_id updates
+            # âœ… NEW: Handle farm_id updates
             if 'farm_id' in request.data:
                 farm_id = request.data['farm_id']
                 if farm_id:
@@ -482,7 +490,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 else:
                     instance.farm = None
 
-            # ✅ NEW: Handle severity updates (required for damage assessment)
+            # âœ… NEW: Handle severity updates (required for damage assessment)
             if 'severity' in request.data:
                 valid_severities = ['low', 'medium', 'high', 'critical']
                 severity = request.data['severity']
@@ -492,7 +500,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     }, status=400)
                 instance.severity = severity
             
-            # ✅ NEW: Handle confirmed field updates
+            # âœ… NEW: Handle confirmed field updates
             if 'confirmed' in request.data:
                 instance.confirmed = request.data['confirmed']
             
@@ -502,7 +510,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if 'status' in request.data:
                 instance.status = request.data['status']
             
-            # ✅ NEW: Allow updating description
+            # âœ… NEW: Allow updating description
             if 'description' in request.data:
                 instance.description = request.data['description']
             
@@ -512,7 +520,17 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             instance.save()
             
-            # ✅ UPDATED: Include farm and severity in log message
+            # ✅ NEW: Check for proximity alerts when detection is confirmed
+            if 'confirmed' in request.data and instance.confirmed and instance.active and instance.farm:
+                try:
+                    created_alerts = check_and_create_proximity_alerts(instance)
+                    if created_alerts:
+                        print(f"✅ Created {len(created_alerts)} proximity alert(s) for detection {instance.id}")
+                except Exception as e:
+                    # Don't fail the update if alert creation fails
+                    print(f"⚠️ Failed to create proximity alerts: {str(e)}")
+            
+            # âœ… UPDATED: Include farm and severity in log message
             log_message = f'Detection ID: {instance.id}, Severity: {instance.severity}'
             if instance.farm:
                 log_message += f', Farm: {instance.farm.name}'
@@ -626,7 +644,47 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         now = timezone.now()
-        return Alert.objects.filter(Q(is_active=True, expires_at__gte=now) | Q(is_active=True, expires_at__isnull=True))
+        queryset = Alert.objects.filter(
+            Q(is_active=True, expires_at__gte=now) | 
+            Q(is_active=True, expires_at__isnull=True)
+        )
+        
+        # ✅ NEW: Filter to show alerts for user's farms only
+        user_farms = Farm.objects.filter(user=self.request.user).values_list('name', flat=True)
+        if user_farms:
+            queryset = queryset.filter(
+                Q(target_area__in=user_farms) |  # Alerts for user's farms
+                Q(target_area='') |               # General alerts
+                Q(target_area__isnull=True)       # System-wide alerts
+            )
+        
+        return queryset.order_by('-created_at')
+    
+    @action(detail=False, methods=['get'])
+    def my_alerts(self, request):
+        """Get alerts specific to user's farms"""
+        user_farms = Farm.objects.filter(user=request.user).values_list('name', flat=True)
+        
+        if not user_farms:
+            return Response([])
+        
+        now = timezone.now()
+        alerts = Alert.objects.filter(
+            is_active=True,
+            target_area__in=user_farms
+        ).filter(
+            Q(expires_at__gte=now) | Q(expires_at__isnull=True)
+        ).order_by('-created_at')
+        
+        serializer = self.get_serializer(alerts, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def proximity_stats(self, request):
+        """Get proximity alert statistics"""
+        stats = get_proximity_alert_stats()
+        return Response(stats)
+
 
 
 # ==================== ADMIN VIEWSETS ====================
