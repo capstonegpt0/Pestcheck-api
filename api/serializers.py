@@ -83,7 +83,15 @@ class FarmSerializer(serializers.ModelSerializer):
 class PestDetectionSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.username', read_only=True)
     farm_name = serializers.CharField(source='farm.name', read_only=True, allow_null=True)
-    farm_id = serializers.IntegerField(source='farm.id', read_only=True, allow_null=True)
+    
+    # ✅ CHANGED: Make farm_id writable using PrimaryKeyRelatedField
+    farm_id = serializers.PrimaryKeyRelatedField(
+        source='farm',
+        queryset=Farm.objects.all(),
+        required=False,
+        allow_null=True
+    )
+    
     pest = serializers.CharField(source='pest_name', read_only=True)
 
     class Meta:
@@ -92,10 +100,23 @@ class PestDetectionSerializer(serializers.ModelSerializer):
         read_only_fields = ['user', 'detected_at', 'verified_by', 'status', 'pest_name']
 
     def to_representation(self, instance):
+        """Ensure farm_id returns as integer in responses"""
         representation = super().to_representation(instance)
         representation['pest'] = instance.pest_name or ""
         representation['farm_id'] = instance.farm.id if instance.farm else None
         return representation
+
+    def validate_farm_id(self, value):
+        """Validate that the user has permission to use this farm"""
+        if value:
+            request = self.context.get('request')
+            if request and request.user:
+                # Admin can assign to any farm, users can only assign to their own farms
+                if request.user.role != 'admin' and value.user != request.user:
+                    raise serializers.ValidationError(
+                        "You can only assign detections to your own farms"
+                    )
+        return value
 
 class PestInfoSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.username', read_only=True, allow_null=True)

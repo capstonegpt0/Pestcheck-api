@@ -454,6 +454,23 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if instance.user != request.user and request.user.role != 'admin':
                 return Response({'error': 'Permission denied'}, status=403)
 
+            # ✅ NEW: Handle farm_id updates
+            if 'farm_id' in request.data:
+                farm_id = request.data['farm_id']
+                if farm_id:
+                    try:
+                        # Verify the farm exists and user has permission
+                        farm = Farm.objects.get(id=farm_id)
+                        if farm.user != request.user and request.user.role != 'admin':
+                            return Response({
+                                'error': 'You do not have permission to assign detections to this farm'
+                            }, status=403)
+                        instance.farm = farm
+                    except Farm.DoesNotExist:
+                        return Response({'error': 'Farm not found'}, status=404)
+                else:
+                    instance.farm = None
+
             # ✅ NEW: Handle severity updates (required for damage assessment)
             if 'severity' in request.data:
                 valid_severities = ['low', 'medium', 'high', 'critical']
@@ -480,11 +497,15 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             instance.save()
             
-            # ✅ UPDATED: Include severity in log message
+            # ✅ UPDATED: Include farm and severity in log message
+            log_message = f'Detection ID: {instance.id}, Severity: {instance.severity}'
+            if instance.farm:
+                log_message += f', Farm: {instance.farm.name}'
+            
             log_activity(
                 request.user, 
                 'updated_detection', 
-                f'Detection ID: {instance.id}, Severity: {instance.severity}', 
+                log_message, 
                 request
             )
             
