@@ -23,6 +23,7 @@ from .serializers import (
     InfestationReportSerializer, AlertSerializer, UserActivitySerializer
 )
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
+from .utils import get_crop_from_pest
 
 # ==================== CONSTANTS ====================
 MAGALANG_BOUNDS = {
@@ -391,6 +392,10 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             print(f"   pest_name: '{pest_name}'")
             print(f"   confidence: {confidence}")
 
+            # Determine crop type based on detected pest
+            detected_crop_type = get_crop_from_pest(pest_name)
+            print(f"   determined crop_type: '{detected_crop_type}' (from pest: '{pest_name}')")
+
             # Only save if we have a valid detection
             # Get confirmed and active from request, default to False (requires user confirmation)
             confirmed = request.data.get('confirmed', 'false').lower() == 'true'
@@ -399,7 +404,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             detection = PestDetection.objects.create(
                 user=request.user,
                 image=image,
-                crop_type=crop_type,
+                crop_type=detected_crop_type,  # Use crop type determined from pest
                 pest_name=pest_name,  # Use validated pest_name
                 pest_type=analysis.get('pest_key', ''),
                 confidence=confidence,  # Use validated confidence
