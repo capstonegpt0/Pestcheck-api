@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('api', '0007_auto_previous_migration'),  # Update this to your last migration number
+        ('api', '0003_populate_pest_data'),  # Update this to your last migration number
     ]
 
     operations = [
