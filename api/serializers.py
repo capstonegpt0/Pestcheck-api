@@ -84,10 +84,10 @@ class PestDetectionSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.username', read_only=True)
     farm_name = serializers.CharField(source='farm.name', read_only=True, allow_null=True)
     
-    # ✅ CHANGED: Make farm_id writable using PrimaryKeyRelatedField
+    # ✅ UPDATED: farm_id queryset will be dynamically filtered in __init__
     farm_id = serializers.PrimaryKeyRelatedField(
         source='farm',
-        queryset=Farm.objects.all(),
+        queryset=Farm.objects.none(),  # Will be overridden in __init__
         required=False,
         allow_null=True
     )
@@ -98,6 +98,21 @@ class PestDetectionSerializer(serializers.ModelSerializer):
         model = PestDetection
         fields = '__all__'
         read_only_fields = ['user', 'detected_at', 'verified_by', 'status', 'pest_name']
+
+    def __init__(self, *args, **kwargs):
+        """Initialize with filtered queryset based on user permissions"""
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        
+        if request and hasattr(request, 'user'):
+            user = request.user
+            # Admin can select any farm, regular users can only select their own farms
+            if user.is_authenticated:
+                if user.role == 'admin':
+                    self.fields['farm_id'].queryset = Farm.objects.all()
+                else:
+                    # Regular users can ONLY select their own farms
+                    self.fields['farm_id'].queryset = Farm.objects.filter(user=user)
 
     def to_representation(self, instance):
         """Ensure farm_id returns as integer in responses"""
@@ -111,7 +126,7 @@ class PestDetectionSerializer(serializers.ModelSerializer):
         if value:
             request = self.context.get('request')
             if request and request.user:
-                # Admin can assign to any farm, users can only assign to their own farms
+                # Double-check: Admin can assign to any farm, users can only assign to their own farms
                 if request.user.role != 'admin' and value.user != request.user:
                     raise serializers.ValidationError(
                         "You can only assign detections to your own farms"
