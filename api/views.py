@@ -392,6 +392,10 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             print(f"   confidence: {confidence}")
 
             # Only save if we have a valid detection
+            # Get confirmed and active from request, default to False (requires user confirmation)
+            confirmed = request.data.get('confirmed', 'false').lower() == 'true'
+            active_status = request.data.get('active', 'false').lower() == 'true'
+            
             detection = PestDetection.objects.create(
                 user=request.user,
                 image=image,
@@ -405,6 +409,8 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 address=request.data.get('address', ''),
                 description=analysis.get('symptoms', ''),
                 status='pending',
+                confirmed=confirmed,  # User confirmation status
+                active=active_status,  # Whether detection is active/visible
                 detected_at=timezone.now()
             )
             log_activity(request.user, 'detected_pest', f"Pest: {detection.pest_name}", request)
@@ -481,6 +487,10 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     }, status=400)
                 instance.severity = severity
             
+            # ✅ NEW: Handle confirmed field updates
+            if 'confirmed' in request.data:
+                instance.confirmed = request.data['confirmed']
+            
             if 'active' in request.data:
                 instance.active = request.data['active']
             
@@ -520,9 +530,12 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
     def heatmap_data(self, request):
         days = int(request.query_params.get('days', 30))
         since = timezone.now() - timedelta(days=days)
-        # All users see all active detections (collaborative monitoring)
+        # All users see all active AND confirmed detections (collaborative monitoring)
         queryset = PestDetection.objects.all()
-        queryset = queryset.filter(active=True).filter(Q(detected_at__gte=since) | Q(reported_at__gte=since))
+        queryset = queryset.filter(
+            active=True, 
+            confirmed=True  # Only show user-confirmed detections
+        ).filter(Q(detected_at__gte=since) | Q(reported_at__gte=since))
         heatmap_points = [{
             'id': det.id,
             'pest': det.pest_name or det.pest_type,

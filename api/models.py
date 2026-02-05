@@ -118,6 +118,7 @@ class PestDetection(models.Model):
     address = models.CharField(max_length=255, blank=True)
     description = models.TextField(null=True, blank=True)
     active = models.BooleanField(default=True)
+    confirmed = models.BooleanField(default=False, help_text='Whether user confirmed this detection is correct')
     detected_at = models.DateTimeField(default=timezone.now)
     reported_at = models.DateTimeField(null=True, blank=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
