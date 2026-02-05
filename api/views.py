@@ -454,15 +454,40 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if instance.user != request.user and request.user.role != 'admin':
                 return Response({'error': 'Permission denied'}, status=403)
 
+            # ✅ NEW: Handle severity updates (required for damage assessment)
+            if 'severity' in request.data:
+                valid_severities = ['low', 'medium', 'high', 'critical']
+                severity = request.data['severity']
+                if severity not in valid_severities:
+                    return Response({
+                        'error': f'Invalid severity. Must be one of: {", ".join(valid_severities)}'
+                    }, status=400)
+                instance.severity = severity
+            
             if 'active' in request.data:
                 instance.active = request.data['active']
+            
             if 'status' in request.data:
                 instance.status = request.data['status']
+            
+            # ✅ NEW: Allow updating description
+            if 'description' in request.data:
+                instance.description = request.data['description']
+            
             if not instance.active or instance.status == 'resolved':
                 instance.resolved_at = timezone.now()
                 instance.status = 'resolved'
+            
             instance.save()
-            log_activity(request.user, 'updated_detection', f'Detection ID: {instance.id}', request)
+            
+            # ✅ UPDATED: Include severity in log message
+            log_activity(
+                request.user, 
+                'updated_detection', 
+                f'Detection ID: {instance.id}, Severity: {instance.severity}', 
+                request
+            )
+            
             return Response(self.get_serializer(instance).data)
         except PestDetection.DoesNotExist:
             return Response({'error': 'Detection not found'}, status=404)
