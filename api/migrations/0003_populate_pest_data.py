@@ -133,7 +133,7 @@ def reverse_migration(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ('api', '0001_initial'),  # Replace with your actual last migration
+        ('api', '0002_auto_create_admin'),  # Replace with your actual last migration
     ]
 
     operations = [
