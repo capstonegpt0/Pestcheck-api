@@ -4,6 +4,7 @@ import requests
 import time
 from datetime import timedelta
 from django.utils import timezone
+from django.http import FileResponse, Http404
 from django.db.models import Count, Q
 
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -964,3 +965,12 @@ class AdminActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(timestamp__lte=date_to)
         
         return queryset
+    
+    def serve_media(request, path):
+
+        file_path = os.path.join(settings.MEDIA_ROOT, path)
+        
+        if os.path.exists(file_path):
+            return FileResponse(open(file_path, 'rb'))
+        else:
+            raise Http404("Image not found")
