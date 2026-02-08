@@ -83,7 +83,15 @@ class FarmSerializer(serializers.ModelSerializer):
 class PestDetectionSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.username', read_only=True)
     farm_name = serializers.CharField(source='farm.name', read_only=True, allow_null=True)
-    farm_id = serializers.IntegerField(source='farm.id', read_only=True, allow_null=True)
+    
+    # ✅ UPDATED: farm_id queryset will be dynamically filtered in __init__
+    farm_id = serializers.PrimaryKeyRelatedField(
+        source='farm',
+        queryset=Farm.objects.none(),  # Will be overridden in __init__
+        required=False,
+        allow_null=True
+    )
+    
     pest = serializers.CharField(source='pest_name', read_only=True)
 
     class Meta:
@@ -91,11 +99,39 @@ class PestDetectionSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['user', 'detected_at', 'verified_by', 'status', 'pest_name']
 
+    def __init__(self, *args, **kwargs):
+        """Initialize with filtered queryset based on user permissions"""
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        
+        if request and hasattr(request, 'user'):
+            user = request.user
+            # Admin can select any farm, regular users can only select their own farms
+            if user.is_authenticated:
+                if user.role == 'admin':
+                    self.fields['farm_id'].queryset = Farm.objects.all()
+                else:
+                    # Regular users can ONLY select their own farms
+                    self.fields['farm_id'].queryset = Farm.objects.filter(user=user)
+
     def to_representation(self, instance):
+        """Ensure farm_id returns as integer in responses"""
         representation = super().to_representation(instance)
         representation['pest'] = instance.pest_name or ""
         representation['farm_id'] = instance.farm.id if instance.farm else None
         return representation
+
+    def validate_farm_id(self, value):
+        """Validate that the user has permission to use this farm"""
+        if value:
+            request = self.context.get('request')
+            if request and request.user:
+                # Double-check: Admin can assign to any farm, users can only assign to their own farms
+                if request.user.role != 'admin' and value.user != request.user:
+                    raise serializers.ValidationError(
+                        "You can only assign detections to your own farms"
+                    )
+        return value
 
 class PestInfoSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.username', read_only=True, allow_null=True)

@@ -25,8 +25,8 @@ class UserAdmin(BaseUserAdmin):
 # Register PestDetection admin
 @admin.register(PestDetection)
 class PestDetectionAdmin(admin.ModelAdmin):
-    list_display = ['id', 'user', 'pest_name', 'crop_type', 'severity', 'confidence', 'detected_at']
-    list_filter = ['crop_type', 'severity', 'detected_at']
+    list_display = ['id', 'user', 'pest_name', 'crop_type', 'severity', 'confidence', 'confirmed', 'active', 'detected_at']
+    list_filter = ['crop_type', 'severity', 'confirmed', 'active', 'detected_at']
     search_fields = ['pest_name', 'user__username', 'address']
     readonly_fields = ['detected_at']
     ordering = ['-detected_at']
@@ -37,6 +37,9 @@ class PestDetectionAdmin(admin.ModelAdmin):
         }),
         ('Results', {
             'fields': ('confidence', 'severity')
+        }),
+        ('Status', {
+            'fields': ('confirmed', 'active', 'status')
         }),
         ('Location', {
             'fields': ('latitude', 'longitude', 'address')
