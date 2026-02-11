@@ -244,6 +244,11 @@ class FarmRequestViewSet(viewsets.ModelViewSet):
                 {'error': 'Admins create farms directly, not requests.'},
                 status=status.HTTP_403_FORBIDDEN
             )
+        if not request.user.is_verified:
+            return Response(
+                {'error': 'Only verified farmers can request farms. Please contact an administrator to get verified.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         return super().create(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
@@ -524,14 +529,14 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     print(f"ðŸ“ Updating latitude: {instance.latitude} -> {new_lat}")
                     instance.latitude = new_lat
                 except (ValueError, TypeError) as e:
-                    print(f"âš ï¸ Invalid latitude value: {request.data['latitude']} - {e}")
+                    print(f"âš ï¸ Invalid latitude value: {request.data['latitude']} - {e}")
             if 'longitude' in request.data:
                 try:
                     new_lng = float(request.data['longitude'])
                     print(f"ðŸ“ Updating longitude: {instance.longitude} -> {new_lng}")
                     instance.longitude = new_lng
                 except (ValueError, TypeError) as e:
-                    print(f"âš ï¸ Invalid longitude value: {request.data['longitude']} - {e}")
+                    print(f"âš ï¸ Invalid longitude value: {request.data['longitude']} - {e}")
             
             print(f"ðŸ“ Final coords before save: lat={instance.latitude}, lng={instance.longitude}")
             
@@ -549,7 +554,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                         print(f"Ã¢Å“â€¦ Created {len(created_alerts)} proximity alert(s) for detection {instance.id}")
                 except Exception as e:
                     # Don't fail the update if alert creation fails
-                    print(f"Ã¢Å¡Â Ã¯Â¸Â Failed to create proximity alerts: {str(e)}")
+                    print(f"Ã¢Å¡Â Ã¯Â¸Â Failed to create proximity alerts: {str(e)}")
             
             # ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ UPDATED: Include farm and severity in log message
             log_message = f'Detection ID: {instance.id}, Severity: {instance.severity}'
@@ -589,6 +594,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             'farm_id': det.farm_id,
             'user_id': det.user_id,
             'user_name': det.user.username if det.user else None,
+            'user_is_verified': det.user.is_verified if det.user else False,
             'reported_at': (det.reported_at or det.detected_at).isoformat(),
             'active': det.active,
             'status': det.status
