@@ -17,22 +17,6 @@ class IsFarmerOrAdmin(permissions.BasePermission):
     def has_permission(self, request, view):
         return request.user and request.user.is_authenticated and request.user.role in ['farmer', 'admin']
 
-class IsVerifiedFarmerOrAdmin(permissions.BasePermission):
-    """Only verified farmers and admins can access - NEW for verified/unverified distinction"""
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-        
-        # Admins always have access
-        if request.user.role == 'admin':
-            return True
-        
-        # Farmers must be verified
-        if request.user.role == 'farmer':
-            return request.user.is_verified
-        
-        return False
-
 class IsOwnerOrAdmin(permissions.BasePermission):
     """Owner or admin can edit"""
     def has_object_permission(self, request, view, obj):
