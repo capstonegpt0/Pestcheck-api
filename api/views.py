@@ -16,13 +16,13 @@ from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
-from .models import User, Farm, FarmRequest, VerificationRequest, PestDetection, PestInfo, InfestationReport, Alert, UserActivity, NotificationPreference
+from .models import User, Farm, FarmRequest, VerificationRequest, PestDetection, PestInfo, InfestationReport, Alert, UserActivity, NotificationPreference, Notification
 from .serializers import (
     UserSerializer, RegisterSerializer, LoginSerializer,
     FarmSerializer, FarmRequestSerializer, VerificationRequestSerializer,
     PestDetectionSerializer, PestInfoSerializer,
     InfestationReportSerializer, AlertSerializer, UserActivitySerializer,
-    NotificationPreferenceSerializer
+    NotificationPreferenceSerializer, NotificationSerializer
 )
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
 from .utils import get_crop_from_pest
@@ -224,6 +224,82 @@ def update_notification_settings(request):
         log_activity(request.user, 'notification_settings_updated', 'Updated notification settings', request)
         return Response(serializer.data)
     return Response(serializer.errors, status=400)
+
+
+# ==================== NOTIFICATION HELPER ====================
+def create_notification(user, notification_type, title, message, related_id=None):
+    """Create an in-app notification for a user, respecting their preferences."""
+    try:
+        prefs, _ = NotificationPreference.objects.get_or_create(user=user)
+
+        # Check preferences
+        if notification_type in ('detection_nearby',) and not prefs.detection_alerts:
+            return None
+        if notification_type in ('critical_pest',) and not prefs.critical_alerts:
+            return None
+
+        return Notification.objects.create(
+            user=user,
+            notification_type=notification_type,
+            title=title,
+            message=message,
+            related_id=related_id
+        )
+    except Exception as e:
+        print(f"Failed to create notification: {e}")
+        return None
+
+
+# ==================== NOTIFICATION ENDPOINTS ====================
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    """User notifications - list, read, mark all read"""
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Notification.objects.filter(user=self.request.user)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        unread_count = queryset.filter(is_read=False).count()
+        # Return latest 50
+        notifications = queryset[:50]
+        serializer = self.get_serializer(notifications, many=True)
+        return Response({
+            'unread_count': unread_count,
+            'results': serializer.data
+        })
+
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        notification = self.get_object()
+        notification.is_read = True
+        notification.save()
+        return Response({'status': 'read'})
+
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        self.get_queryset().filter(is_read=False).update(is_read=True)
+        return Response({'status': 'all read'})
+
+    @action(detail=False, methods=['get'])
+    def unread_count(self, request):
+        count = self.get_queryset().filter(is_read=False).count()
+        return Response({'unread_count': count})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def register_push_subscription(request):
+    """Save push subscription for the user"""
+    subscription = request.data.get('subscription')
+    if not subscription:
+        return Response({'error': 'No subscription provided'}, status=400)
+    prefs, _ = NotificationPreference.objects.get_or_create(user=request.user)
+    prefs.push_subscription = subscription
+    prefs.push_enabled = True
+    prefs.save()
+    return Response({'status': 'subscribed'})
 
 
 # ==================== FARM REQUEST VIEWSET (NEW) ====================
@@ -840,6 +916,12 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
             request
         )
 
+        create_notification(
+            vr.user, 'verification_approved', 'Account Verified',
+            'Your account has been verified! You now have full access to farm registration and pest monitoring features.',
+            related_id=vr.id
+        )
+
         return Response({
             'message': f'User {vr.user.username} has been verified successfully.',
             'user_id': vr.user.id
@@ -870,6 +952,12 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
             'verification_rejected',
             f'Rejected request for user: {vr.user.username}',
             request
+        )
+
+        create_notification(
+            vr.user, 'verification_rejected', 'Verification Request Rejected',
+            f'Your verification request was rejected. Reason: {review_notes}. You may resubmit with corrected information.',
+            related_id=vr.id
         )
 
         return Response({'message': f'Verification request for {vr.user.username} has been rejected.'})
@@ -1054,6 +1142,12 @@ class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
                 f'Approved: {farm_request.name} for {farm_request.user.username}', 
                 request
             )
+
+            create_notification(
+                farm_request.user, 'farm_approved', 'Farm Request Approved',
+                f'Your farm "{farm_request.name}" has been approved and is now registered.',
+                related_id=farm.id
+            )
             
             return Response({
                 'message': 'Farm request approved',
@@ -1088,6 +1182,12 @@ class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
             'farm_request_rejected', 
             f'Rejected: {farm_request.name}', 
             request
+        )
+
+        create_notification(
+            farm_request.user, 'farm_rejected', 'Farm Request Rejected',
+            f'Your farm request "{farm_request.name}" was rejected. Reason: {farm_request.review_notes}',
+            related_id=farm_request.id
         )
         
         return Response({'message': 'Farm request rejected'})
@@ -1125,6 +1225,16 @@ class AdminAlertManagementViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         alert = serializer.save(created_by=self.request.user)
         log_activity(self.request.user, 'created_alert', f'Alert: {alert.title}', self.request)
+        
+        # Notify target users
+        if alert.target_area:
+            target_users = User.objects.filter(farms__name=alert.target_area).distinct()
+        else:
+            target_users = User.objects.filter(role='farmer')
+        for u in target_users:
+            create_notification(
+                u, 'admin_alert', alert.title, alert.message, related_id=alert.id
+            )
     
     @action(detail=True, methods=['post'])
     def toggle_active(self, request, pk=None):

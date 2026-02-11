@@ -256,10 +256,10 @@ class UserActivity(models.Model):
 class NotificationPreference(models.Model):
     """User notification preferences"""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='notification_preferences')
-    email_notifications = models.BooleanField(default=True)
+    push_enabled = models.BooleanField(default=True)
     detection_alerts = models.BooleanField(default=True)
-    weekly_reports = models.BooleanField(default=False)
     critical_alerts = models.BooleanField(default=True)
+    push_subscription = models.JSONField(null=True, blank=True, help_text='Web Push subscription JSON')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -267,3 +267,33 @@ class NotificationPreference(models.Model):
 
     def __str__(self):
         return f"NotificationPrefs({self.user.username})"
+
+
+# Notification model (in-app notifications)
+class Notification(models.Model):
+    """In-app notifications for users"""
+    NOTIFICATION_TYPES = [
+        ('detection_nearby', 'Pest Detection Nearby'),
+        ('verification_approved', 'Verification Approved'),
+        ('verification_rejected', 'Verification Rejected'),
+        ('farm_approved', 'Farm Request Approved'),
+        ('farm_rejected', 'Farm Request Rejected'),
+        ('admin_alert', 'Admin Alert'),
+        ('critical_pest', 'Critical Pest Alert'),
+        ('system', 'System Notification'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    notification_type = models.CharField(max_length=30, choices=NOTIFICATION_TYPES)
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    related_id = models.IntegerField(null=True, blank=True, help_text='ID of related object (detection, farm, etc.)')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'notifications'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.username} - {self.title}"

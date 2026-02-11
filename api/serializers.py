@@ -10,7 +10,8 @@ from .models import (
     InfestationReport,
     UserActivity,
     Alert,
-    NotificationPreference
+    NotificationPreference,
+    Notification
 )
 
 class UserSerializer(serializers.ModelSerializer):
@@ -206,4 +207,11 @@ class UserActivitySerializer(serializers.ModelSerializer):
 class NotificationPreferenceSerializer(serializers.ModelSerializer):
     class Meta:
         model = NotificationPreference
-        fields = ['email_notifications', 'detection_alerts', 'weekly_reports', 'critical_alerts']
+        fields = ['push_enabled', 'detection_alerts', 'critical_alerts']
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ['id', 'notification_type', 'title', 'message', 'is_read', 'related_id', 'created_at']
+        read_only_fields = ['id', 'notification_type', 'title', 'message', 'related_id', 'created_at']

@@ -17,6 +17,9 @@ router.register(r'alerts', views.AlertViewSet, basename='alert')
 # Users submit verification requests (RSBSA + valid ID) here
 router.register(r'verification-requests', views.VerificationRequestViewSet, basename='verification-request')
 
+# ==================== NOTIFICATIONS ====================
+router.register(r'notifications', views.NotificationViewSet, basename='notification')
+
 # ==================== ADMIN VIEWSETS ====================
 router.register(r'admin/users', views.AdminUserManagementViewSet, basename='admin-users')
 router.register(r'admin/farms', views.AdminFarmManagementViewSet, basename='admin-farms')
@@ -39,6 +42,7 @@ urlpatterns = [
     path('auth/profile/update/', views.update_profile, name='update-profile'),
     path('auth/change-password/', views.change_password, name='change-password'),
     path('auth/notification-settings/', views.update_notification_settings, name='notification-settings'),
+    path('auth/push-subscription/', views.register_push_subscription, name='push-subscription'),
 
     # ==================== ROUTER URLS ====================
     path('', include(router.urls)),
