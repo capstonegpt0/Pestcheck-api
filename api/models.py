@@ -23,6 +23,48 @@ class User(AbstractUser):
     def is_farmer(self):
         return self.role == 'farmer'
 
+
+# Verification Request model - Users submit to get verified
+class VerificationRequest(models.Model):
+    """Verification requests submitted by users to get verified status"""
+    STATUS_CHOICES = [
+        ('pending', 'Pending Review'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='verification_requests')
+
+    # Required documents
+    rsbsa_number = models.CharField(max_length=100, help_text='RSBSA Registration Number')
+    valid_id_image = models.ImageField(upload_to='verification_ids/', help_text='Valid government-issued ID')
+
+    # Optional additional info
+    notes = models.TextField(blank=True, help_text='Additional notes from the user')
+
+    # Request status
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    # Admin review
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reviewed_verification_requests'
+    )
+    review_notes = models.TextField(blank=True, help_text='Admin feedback on the request')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'verification_requests'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"VerificationRequest({self.user.username} - {self.status})"
+
+
 # Farm Request model - Users request farms here
 class FarmRequest(models.Model):
     """Farm registration requests from users - requires admin approval"""

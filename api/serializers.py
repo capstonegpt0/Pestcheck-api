@@ -4,6 +4,7 @@ from .models import (
     User,
     Farm,
     FarmRequest,
+    VerificationRequest,
     PestDetection,
     PestInfo,
     InfestationReport,
@@ -45,6 +46,42 @@ class LoginSerializer(serializers.Serializer):
         if user and user.is_active:
             return user
         raise serializers.ValidationError("Invalid credentials")
+
+
+# ==================== VERIFICATION REQUEST SERIALIZER ====================
+class VerificationRequestSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.username', read_only=True)
+    user_full_name = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.CharField(source='reviewed_by.username', read_only=True, allow_null=True)
+    valid_id_image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VerificationRequest
+        fields = [
+            'id', 'user', 'user_name', 'user_full_name',
+            'rsbsa_number', 'valid_id_image', 'valid_id_image_url',
+            'notes', 'status',
+            'reviewed_by', 'reviewed_by_name', 'review_notes', 'reviewed_at',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'user', 'user_name', 'user_full_name',
+            'status', 'reviewed_by', 'reviewed_by_name',
+            'review_notes', 'reviewed_at', 'created_at', 'updated_at',
+            'valid_id_image_url'
+        ]
+
+    def get_user_full_name(self, obj):
+        return f"{obj.user.first_name} {obj.user.last_name}".strip() or obj.user.username
+
+    def get_valid_id_image_url(self, obj):
+        if obj.valid_id_image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.valid_id_image.url)
+            return obj.valid_id_image.url
+        return None
+
 
 # Farm Request Serializer
 class FarmRequestSerializer(serializers.ModelSerializer):

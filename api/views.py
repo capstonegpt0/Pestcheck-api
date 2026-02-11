@@ -16,16 +16,17 @@ from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
-from .models import User, Farm, FarmRequest, PestDetection, PestInfo, InfestationReport, Alert, UserActivity
+from .models import User, Farm, FarmRequest, VerificationRequest, PestDetection, PestInfo, InfestationReport, Alert, UserActivity
 from .serializers import (
     UserSerializer, RegisterSerializer, LoginSerializer,
-    FarmSerializer, FarmRequestSerializer, PestDetectionSerializer, PestInfoSerializer,
+    FarmSerializer, FarmRequestSerializer, VerificationRequestSerializer,
+    PestDetectionSerializer, PestInfoSerializer,
     InfestationReportSerializer, AlertSerializer, UserActivitySerializer
 )
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
 from .utils import get_crop_from_pest
 
-# Ã¢Å“â€¦ NEW: Import proximity alert utilities
+# ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NEW: Import proximity alert utilities
 from .proximity_utils import (
     check_and_create_proximity_alerts,
     check_proximity_alerts_for_farm,
@@ -299,7 +300,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         # All users see all detections for collaborative monitoring
         queryset = PestDetection.objects.all()
 
-        # Geofence filter ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ only Magalang area
+        # Geofence filter ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ only Magalang area
         queryset = queryset.filter(
             latitude__gte=MAGALANG_BOUNDS['south'],
             latitude__lte=MAGALANG_BOUNDS['north'],
@@ -380,15 +381,15 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             print(f"ML API response: {analysis}")
 
-            # ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ ADD VALIDATION HERE - Check if pest was actually detected
+            # ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ ADD VALIDATION HERE - Check if pest was actually detected
             pest_name = analysis.get('pest_name', '')
             confidence = analysis.get('confidence', 0.0)
             
-            print(f"ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â Validation - pest_name: '{pest_name}', confidence: {confidence}")
+            print(f"ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â Validation - pest_name: '{pest_name}', confidence: {confidence}")
             
             # Don't save if no pest was detected
             if not pest_name or pest_name == 'Unknown Pest' or pest_name == '' or confidence < 0.1:
-                print(f"ÃƒÂ¢Ã‚ÂÃ…â€™ Validation FAILED - No valid pest detected")
+                print(f"ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Validation FAILED - No valid pest detected")
                 print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
                 print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
                 return Response({
@@ -401,7 +402,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     }
                 }, status=400)
             
-            print(f"ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Validation PASSED - Saving detection")
+            print(f"ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Validation PASSED - Saving detection")
             print(f"   pest_name: '{pest_name}'")
             print(f"   confidence: {confidence}")
 
@@ -444,12 +445,12 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 'num_detections': analysis.get('num_detections', 1)
             })
             
-            print(f"ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Returning successful detection response")
+            print(f"ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ Returning successful detection response")
             return Response(response_data, status=201)
 
         except Exception as e:
             error_message = str(e)
-            print(f"ÃƒÂ¢Ã‚ÂÃ…â€™ Detection error: {error_message}")
+            print(f"ÃƒÆ’Ã‚Â¢Ãƒâ€šÃ‚ÂÃƒâ€¦Ã¢â‚¬â„¢ Detection error: {error_message}")
             
             # Provide helpful error messages
             if "starting up" in error_message or "503" in error_message:
@@ -473,15 +474,15 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 
     def partial_update(self, request, *args, **kwargs):
         detection_id = kwargs.get('pk')
-        print(f"ðŸ“ partial_update called for detection {detection_id}")
-        print(f"ðŸ“ Request data: {dict(request.data)}")
-        print(f"ðŸ“ Content-Type: {request.content_type}")
+        print(f"Ã°Å¸â€œÂ partial_update called for detection {detection_id}")
+        print(f"Ã°Å¸â€œÂ Request data: {dict(request.data)}")
+        print(f"Ã°Å¸â€œÂ Content-Type: {request.content_type}")
         try:
             instance = PestDetection.objects.get(id=detection_id)
             if instance.user != request.user and request.user.role != 'admin':
                 return Response({'error': 'Permission denied'}, status=403)
 
-            # ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NEW: Handle farm_id updates
+            # ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ NEW: Handle farm_id updates
             if 'farm_id' in request.data:
                 farm_id = request.data['farm_id']
                 if farm_id:
@@ -498,7 +499,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 else:
                     instance.farm = None
 
-            # ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NEW: Handle severity updates (required for damage assessment)
+            # ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ NEW: Handle severity updates (required for damage assessment)
             if 'severity' in request.data:
                 valid_severities = ['low', 'medium', 'high', 'critical']
                 severity = request.data['severity']
@@ -508,7 +509,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     }, status=400)
                 instance.severity = severity
             
-            # ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NEW: Handle confirmed field updates
+            # ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ NEW: Handle confirmed field updates
             if 'confirmed' in request.data:
                 instance.confirmed = request.data['confirmed']
             
@@ -518,7 +519,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if 'status' in request.data:
                 instance.status = request.data['status']
             
-            # ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NEW: Allow updating description
+            # ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ NEW: Allow updating description
             if 'description' in request.data:
                 instance.description = request.data['description']
             
@@ -526,19 +527,19 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if 'latitude' in request.data:
                 try:
                     new_lat = float(request.data['latitude'])
-                    print(f"ðŸ“ Updating latitude: {instance.latitude} -> {new_lat}")
+                    print(f"Ã°Å¸â€œÂ Updating latitude: {instance.latitude} -> {new_lat}")
                     instance.latitude = new_lat
                 except (ValueError, TypeError) as e:
-                    print(f"âš ï¸ Invalid latitude value: {request.data['latitude']} - {e}")
+                    print(f"Ã¢Å¡Â Ã¯Â¸Â Invalid latitude value: {request.data['latitude']} - {e}")
             if 'longitude' in request.data:
                 try:
                     new_lng = float(request.data['longitude'])
-                    print(f"ðŸ“ Updating longitude: {instance.longitude} -> {new_lng}")
+                    print(f"Ã°Å¸â€œÂ Updating longitude: {instance.longitude} -> {new_lng}")
                     instance.longitude = new_lng
                 except (ValueError, TypeError) as e:
-                    print(f"âš ï¸ Invalid longitude value: {request.data['longitude']} - {e}")
+                    print(f"Ã¢Å¡Â Ã¯Â¸Â Invalid longitude value: {request.data['longitude']} - {e}")
             
-            print(f"ðŸ“ Final coords before save: lat={instance.latitude}, lng={instance.longitude}")
+            print(f"Ã°Å¸â€œÂ Final coords before save: lat={instance.latitude}, lng={instance.longitude}")
             
             if not instance.active or instance.status == 'resolved':
                 instance.resolved_at = timezone.now()
@@ -546,17 +547,17 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             instance.save()
             
-            # Ã¢Å“â€¦ NEW: Check for proximity alerts when detection is confirmed
+            # ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NEW: Check for proximity alerts when detection is confirmed
             if 'confirmed' in request.data and instance.confirmed and instance.active and instance.farm:
                 try:
                     created_alerts = check_and_create_proximity_alerts(instance)
                     if created_alerts:
-                        print(f"Ã¢Å“â€¦ Created {len(created_alerts)} proximity alert(s) for detection {instance.id}")
+                        print(f"ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Created {len(created_alerts)} proximity alert(s) for detection {instance.id}")
                 except Exception as e:
                     # Don't fail the update if alert creation fails
-                    print(f"Ã¢Å¡Â Ã¯Â¸Â Failed to create proximity alerts: {str(e)}")
+                    print(f"ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â Failed to create proximity alerts: {str(e)}")
             
-            # ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ UPDATED: Include farm and severity in log message
+            # ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ UPDATED: Include farm and severity in log message
             log_message = f'Detection ID: {instance.id}, Severity: {instance.severity}'
             if instance.farm:
                 log_message += f', Farm: {instance.farm.name}'
@@ -676,7 +677,7 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
             Q(is_active=True, expires_at__isnull=True)
         )
         
-        # Ã¢Å“â€¦ NEW: Filter to show alerts for user's farms only
+        # ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ NEW: Filter to show alerts for user's farms only
         user_farms = Farm.objects.filter(user=self.request.user).values_list('name', flat=True)
         if user_farms:
             queryset = queryset.filter(
@@ -712,6 +713,157 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
         stats = get_proximity_alert_stats()
         return Response(stats)
 
+
+
+# ==================== VERIFICATION REQUEST VIEWSET ====================
+class VerificationRequestViewSet(viewsets.ModelViewSet):
+    """
+    Farmers can submit verification requests with RSBSA number and valid ID.
+    Only one pending/approved request allowed per user at a time.
+    """
+    serializer_class = VerificationRequestSerializer
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        if self.request.user.role == 'admin':
+            return VerificationRequest.objects.all()
+        return VerificationRequest.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        # Prevent admins from submitting requests
+        if request.user.role == 'admin':
+            return Response(
+                {'error': 'Admins do not need to submit verification requests.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        # Already verified
+        if request.user.is_verified:
+            return Response(
+                {'error': 'Your account is already verified.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # Block if there is an existing pending request
+        existing_pending = VerificationRequest.objects.filter(
+            user=request.user, status='pending'
+        ).exists()
+        if existing_pending:
+            return Response(
+                {'error': 'You already have a pending verification request. Please wait for admin review.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().create(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        vr = serializer.save(user=self.request.user, status='pending')
+        log_activity(
+            self.request.user,
+            'verification_request_submitted',
+            f'RSBSA: {vr.rsbsa_number}',
+            self.request
+        )
+
+    def update(self, request, *args, **kwargs):
+        return Response({'error': 'Verification requests cannot be edited.'}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def partial_update(self, request, *args, **kwargs):
+        return Response({'error': 'Verification requests cannot be edited.'}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if request.user.role != 'admin' and instance.status != 'pending':
+            return Response(
+                {'error': 'Only pending requests can be cancelled.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if request.user.role != 'admin' and instance.user != request.user:
+            return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'])
+    def my_request(self, request):
+        """Get the current user's latest verification request"""
+        latest = VerificationRequest.objects.filter(user=request.user).first()
+        if not latest:
+            return Response(None)
+        serializer = self.get_serializer(latest, context={'request': request})
+        return Response(serializer.data)
+
+
+# ==================== ADMIN VERIFICATION REQUEST MANAGEMENT ====================
+class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
+    """Admin can view all verification requests and approve/reject them"""
+    queryset = VerificationRequest.objects.all()
+    serializer_class = VerificationRequestSerializer
+    permission_classes = [IsAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """Approve verification request and mark user as verified"""
+        vr = self.get_object()
+
+        if vr.status != 'pending':
+            return Response(
+                {'error': f'Request is already {vr.status}.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Mark user as verified
+        vr.user.is_verified = True
+        vr.user.save()
+
+        # Update the request
+        vr.status = 'approved'
+        vr.reviewed_by = request.user
+        vr.reviewed_at = timezone.now()
+        vr.review_notes = request.data.get('review_notes', '')
+        vr.save()
+
+        log_activity(
+            request.user,
+            'verification_approved',
+            f'Verified user: {vr.user.username}',
+            request
+        )
+
+        return Response({
+            'message': f'User {vr.user.username} has been verified successfully.',
+            'user_id': vr.user.id
+        })
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Reject verification request"""
+        vr = self.get_object()
+
+        if vr.status != 'pending':
+            return Response(
+                {'error': f'Request is already {vr.status}.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        vr.status = 'rejected'
+        vr.reviewed_by = request.user
+        vr.reviewed_at = timezone.now()
+        vr.review_notes = request.data.get('review_notes', 'Rejected')
+        vr.save()
+
+        log_activity(
+            request.user,
+            'verification_rejected',
+            f'Rejected request for user: {vr.user.username}',
+            request
+        )
+
+        return Response({'message': f'Verification request for {vr.user.username} has been rejected.'})
+
+    @action(detail=False, methods=['get'])
+    def pending_requests(self, request):
+        """Get all pending verification requests"""
+        pending = self.get_queryset().filter(status='pending')
+        serializer = self.get_serializer(pending, many=True, context={'request': request})
+        return Response(serializer.data)
 
 
 # ==================== ADMIN VIEWSETS ====================
