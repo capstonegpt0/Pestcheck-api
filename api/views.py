@@ -8,7 +8,7 @@ from django.db.models import Count, Q
 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from .models import PestDetection, Farm
 from .serializers import PestDetectionSerializer
 from rest_framework import viewsets, status, generics, permissions
@@ -796,7 +796,7 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
     queryset = VerificationRequest.objects.all()
     serializer_class = VerificationRequestSerializer
     permission_classes = [IsAdmin]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_serializer_context(self):
         """Ensure request context is passed to serializer"""
@@ -815,6 +815,9 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Read request data first (before any saves)
+        review_notes = request.data.get('review_notes', '') if request.data else ''
+
         # Mark user as verified
         vr.user.is_verified = True
         vr.user.save()
@@ -823,7 +826,7 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
         vr.status = 'approved'
         vr.reviewed_by = request.user
         vr.reviewed_at = timezone.now()
-        vr.review_notes = request.data.get('review_notes', '')
+        vr.review_notes = review_notes
         vr.save()
 
         log_activity(
@@ -852,10 +855,13 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Read request data first (before any saves)
+        review_notes = request.data.get('review_notes', 'Rejected') if request.data else 'Rejected'
+
         vr.status = 'rejected'
         vr.reviewed_by = request.user
         vr.reviewed_at = timezone.now()
-        vr.review_notes = request.data.get('review_notes', 'Rejected')
+        vr.review_notes = review_notes
         vr.save()
 
         log_activity(
