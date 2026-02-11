@@ -250,3 +250,20 @@ class UserActivity(models.Model):
     
     def __str__(self):
         return f"{self.user.username} - {self.action}"
+
+
+# NotificationPreference model
+class NotificationPreference(models.Model):
+    """User notification preferences"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='notification_preferences')
+    email_notifications = models.BooleanField(default=True)
+    detection_alerts = models.BooleanField(default=True)
+    weekly_reports = models.BooleanField(default=False)
+    critical_alerts = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'notification_preferences'
+
+    def __str__(self):
+        return f"NotificationPrefs({self.user.username})"

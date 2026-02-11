@@ -9,7 +9,8 @@ from .models import (
     PestInfo,
     InfestationReport,
     UserActivity,
-    Alert
+    Alert,
+    NotificationPreference
 )
 
 class UserSerializer(serializers.ModelSerializer):
@@ -121,7 +122,7 @@ class PestDetectionSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.username', read_only=True)
     farm_name = serializers.CharField(source='farm.name', read_only=True, allow_null=True)
     
-    # ✅ UPDATED: farm_id queryset will be dynamically filtered in __init__
+    # âœ… UPDATED: farm_id queryset will be dynamically filtered in __init__
     farm_id = serializers.PrimaryKeyRelatedField(
         source='farm',
         queryset=Farm.objects.none(),  # Will be overridden in __init__
@@ -202,3 +203,7 @@ class UserActivitySerializer(serializers.ModelSerializer):
         model = UserActivity
         fields = ['id', 'user', 'user_name', 'action', 'details', 'ip_address', 'timestamp']
         read_only_fields = ['id', 'timestamp']
+class NotificationPreferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotificationPreference
+        fields = ['email_notifications', 'detection_alerts', 'weekly_reports', 'critical_alerts']

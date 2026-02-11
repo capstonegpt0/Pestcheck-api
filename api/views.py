@@ -16,12 +16,13 @@ from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
-from .models import User, Farm, FarmRequest, VerificationRequest, PestDetection, PestInfo, InfestationReport, Alert, UserActivity
+from .models import User, Farm, FarmRequest, VerificationRequest, PestDetection, PestInfo, InfestationReport, Alert, UserActivity, NotificationPreference
 from .serializers import (
     UserSerializer, RegisterSerializer, LoginSerializer,
     FarmSerializer, FarmRequestSerializer, VerificationRequestSerializer,
     PestDetectionSerializer, PestInfoSerializer,
-    InfestationReportSerializer, AlertSerializer, UserActivitySerializer
+    InfestationReportSerializer, AlertSerializer, UserActivitySerializer,
+    NotificationPreferenceSerializer
 )
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
 from .utils import get_crop_from_pest
@@ -206,14 +207,23 @@ def change_password(request):
     return Response({'message': 'Password changed successfully'})
 
 
-@api_view(['PATCH'])
+@api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def update_notification_settings(request):
-    """Update notification preferences (placeholder for future implementation)"""
-    # For now, just acknowledge the request
-    # In a real implementation, you would save these to a UserPreferences model
-    log_activity(request.user, 'notification_settings_updated', 'Updated notification settings', request)
-    return Response({'message': 'Notification settings updated successfully'})
+    """Get or update notification preferences"""
+    prefs, created = NotificationPreference.objects.get_or_create(user=request.user)
+
+    if request.method == 'GET':
+        serializer = NotificationPreferenceSerializer(prefs)
+        return Response(serializer.data)
+
+    # PATCH
+    serializer = NotificationPreferenceSerializer(prefs, data=request.data, partial=True)
+    if serializer.is_valid():
+        serializer.save()
+        log_activity(request.user, 'notification_settings_updated', 'Updated notification settings', request)
+        return Response(serializer.data)
+    return Response(serializer.errors, status=400)
 
 
 # ==================== FARM REQUEST VIEWSET (NEW) ====================
@@ -798,12 +808,6 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdmin]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
-    def get_serializer_context(self):
-        """Ensure request context is passed to serializer"""
-        context = super().get_serializer_context()
-        context['request'] = self.request
-        return context
-
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         """Approve verification request and mark user as verified"""
@@ -836,12 +840,9 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
             request
         )
 
-        # Return serialized response with context
-        serializer = self.get_serializer(vr)
         return Response({
             'message': f'User {vr.user.username} has been verified successfully.',
-            'user_id': vr.user.id,
-            'request': serializer.data
+            'user_id': vr.user.id
         })
 
     @action(detail=True, methods=['post'])
@@ -871,12 +872,7 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
             request
         )
 
-        # Return serialized response with context
-        serializer = self.get_serializer(vr)
-        return Response({
-            'message': f'Verification request for {vr.user.username} has been rejected.',
-            'request': serializer.data
-        })
+        return Response({'message': f'Verification request for {vr.user.username} has been rejected.'})
 
     @action(detail=False, methods=['get'])
     def pending_requests(self, request):
