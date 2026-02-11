@@ -1,63 +1,64 @@
+# api/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from rest_framework_simplejwt.views import TokenRefreshView
+
 from .views import (
-    register_view,
-    login_view,
-    logout_view,
-    user_profile,
-    update_profile,
-    change_password,
-    update_notification_settings,
-    check_verification_status,  # ✅ NEW
+    register_view, login_view, logout_view, user_profile,
+    update_profile, change_password, update_notification_settings,
+    # User/Farmer ViewSets
+    FarmViewSet, 
     FarmRequestViewSet,
-    FarmViewSet,
-    PestDetectionViewSet,
-    DetectionListCreateAPIView,
-    DetectionStatisticsAPIView,
-    PestInfoViewSet,
+    PestDetectionViewSet, 
+    PestInfoViewSet, 
     AlertViewSet,
-    AdminUserManagementViewSet,
+    # Admin ViewSets
+    AdminUserManagementViewSet, 
     AdminFarmManagementViewSet,
-    AdminDetectionManagementViewSet,
-    AdminPestInfoManagementViewSet,
-    AdminAlertManagementViewSet,
     AdminFarmRequestManagementViewSet,
+    AdminDetectionManagementViewSet, 
+    AdminPestInfoManagementViewSet,
+    AdminAlertManagementViewSet, 
     AdminActivityLogViewSet,
+    DetectionListCreateAPIView, 
+    DetectionStatisticsAPIView
 )
 
-router = DefaultRouter()
-router.register(r'farm-requests', FarmRequestViewSet, basename='farm-request')
-router.register(r'farms', FarmViewSet, basename='farm')
-router.register(r'detections', PestDetectionViewSet, basename='detection')
-router.register(r'pests', PestInfoViewSet, basename='pest')
-router.register(r'alerts', AlertViewSet, basename='alert')
+# User/Farmer Router
+user_router = DefaultRouter()
+user_router.register(r'farms', FarmViewSet, basename='farm')
+user_router.register(r'farm-requests', FarmRequestViewSet, basename='farm-request')
+user_router.register(r'detections', PestDetectionViewSet, basename='detection')
+user_router.register(r'pests', PestInfoViewSet, basename='pest')
+user_router.register(r'alerts', AlertViewSet, basename='alert')
 
-# Admin routes
-router.register(r'admin/users', AdminUserManagementViewSet, basename='admin-user')
-router.register(r'admin/farms', AdminFarmManagementViewSet, basename='admin-farm')
-router.register(r'admin/detections', AdminDetectionManagementViewSet, basename='admin-detection')
-router.register(r'admin/pests', AdminPestInfoManagementViewSet, basename='admin-pest')
-router.register(r'admin/alerts', AdminAlertManagementViewSet, basename='admin-alert')
-router.register(r'admin/farm-requests', AdminFarmRequestManagementViewSet, basename='admin-farm-request')
-router.register(r'admin/activity-logs', AdminActivityLogViewSet, basename='admin-activity')
+# Admin Router
+admin_router = DefaultRouter()
+admin_router.register(r'users', AdminUserManagementViewSet, basename='admin-user')
+admin_router.register(r'farms', AdminFarmManagementViewSet, basename='admin-farm')
+admin_router.register(r'farm-requests', AdminFarmRequestManagementViewSet, basename='admin-farm-request')
+admin_router.register(r'detections', AdminDetectionManagementViewSet, basename='admin-detection')
+admin_router.register(r'pests', AdminPestInfoManagementViewSet, basename='admin-pest')
+admin_router.register(r'alerts', AdminAlertManagementViewSet, basename='admin-alert')
+admin_router.register(r'activity-logs', AdminActivityLogViewSet, basename='admin-activity')
 
 urlpatterns = [
-    # Include router URLs
-    path('', include(router.urls)),
-    
     # Authentication endpoints
     path('auth/register/', register_view, name='register'),
     path('auth/login/', login_view, name='login'),
     path('auth/logout/', logout_view, name='logout'),
     path('auth/profile/', user_profile, name='profile'),
-    path('auth/profile/update/', update_profile, name='update-profile'),
+    path('auth/profile/update/', update_profile, name='profile-update'),
     path('auth/change-password/', change_password, name='change-password'),
     path('auth/notification-settings/', update_notification_settings, name='notification-settings'),
+    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
-    # ✅ NEW: Verification status endpoint
-    path('user/verification-status/', check_verification_status, name='verification-status'),
+    # Statistics endpoint (keep this one)
+    path('detections/statistics/', DetectionStatisticsAPIView.as_view(), name='detections-statistics'),
     
-    # Detection endpoints (additional)
-    path('detections/create/', DetectionListCreateAPIView.as_view(), name='detection-create'),
-    path('detections/statistics/', DetectionStatisticsAPIView.as_view(), name='detection-statistics'),
+    # User/Farmer endpoints - This includes /detections/ via PestDetectionViewSet
+    path('', include(user_router.urls)),
+    
+    # Admin endpoints
+    path('admin/', include(admin_router.urls)),
 ]
