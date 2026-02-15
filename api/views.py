@@ -479,7 +479,8 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
                 print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
                 return Response({
-                    'error': 'No pest detected in the image. Please try another image with clearer pest visibility.',
+                    'error': 'No pest was detected in the image. Please try again with a clearer photo of the pest.',
+                    'no_pest_detected': True,
                     'retry': True,
                     'debug': {
                         'pest_name': pest_name,
