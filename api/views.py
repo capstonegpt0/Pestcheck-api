@@ -759,41 +759,55 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         now = timezone.now()
-        queryset = Alert.objects.filter(
-            Q(is_active=True, expires_at__gte=now) | 
+        # Base: only active, non-expired alerts
+        base_qs = Alert.objects.filter(
+            Q(is_active=True, expires_at__gte=now) |
             Q(is_active=True, expires_at__isnull=True)
         )
-        
-        # ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ NEW: Filter to show alerts for user's farms only
+
+        # General/system-wide alerts (empty or null target_area) — always included
+        general_q = Q(target_area='') | Q(target_area__isnull=True)
+
+        # Farm-specific alerts — match user's farm names (case-insensitive contains)
         user_farms = Farm.objects.filter(user=self.request.user).values_list('name', flat=True)
         if user_farms:
-            queryset = queryset.filter(
-                Q(target_area__in=user_farms) |  # Alerts for user's farms
-                Q(target_area='') |               # General alerts
-                Q(target_area__isnull=True)       # System-wide alerts
-            )
-        
+            farm_q = Q()
+            for farm_name in user_farms:
+                farm_q |= Q(target_area__iexact=farm_name)
+                farm_q |= Q(target_area__icontains=farm_name)
+            queryset = base_qs.filter(general_q | farm_q)
+        else:
+            # Users with no farms still see general/system-wide alerts
+            queryset = base_qs.filter(general_q)
+
         return queryset.order_by('-created_at')
-    
+
     @action(detail=False, methods=['get'])
     def my_alerts(self, request):
-        """Get alerts specific to user's farms"""
-        user_farms = Farm.objects.filter(user=request.user).values_list('name', flat=True)
-        
-        if not user_farms:
-            return Response([])
-        
+        """Get alerts specific to user's farms + general alerts"""
         now = timezone.now()
-        alerts = Alert.objects.filter(
-            is_active=True,
-            target_area__in=user_farms
+        base_qs = Alert.objects.filter(
+            is_active=True
         ).filter(
             Q(expires_at__gte=now) | Q(expires_at__isnull=True)
-        ).order_by('-created_at')
-        
+        )
+
+        # Always include general alerts
+        general_q = Q(target_area='') | Q(target_area__isnull=True)
+
+        user_farms = Farm.objects.filter(user=request.user).values_list('name', flat=True)
+        if user_farms:
+            farm_q = Q()
+            for farm_name in user_farms:
+                farm_q |= Q(target_area__iexact=farm_name)
+                farm_q |= Q(target_area__icontains=farm_name)
+            alerts = base_qs.filter(general_q | farm_q)
+        else:
+            alerts = base_qs.filter(general_q)
+
         serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
-    
+
     @action(detail=False, methods=['get'])
     def proximity_stats(self, request):
         """Get proximity alert statistics"""
