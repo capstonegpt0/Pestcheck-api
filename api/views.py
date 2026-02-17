@@ -764,8 +764,8 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
             Q(is_active=True, expires_at__isnull=True)
         )
 
-        # General/system-wide alerts (empty or null target_area) - always included
-        general_q = Q(target_area='') | Q(target_area__isnull=True)
+        # General/system-wide alerts: empty, null, OR broad geographic names (not a specific farm)
+        general_q = Q(target_area='') | Q(target_area__isnull=True) | Q(target_area__icontains='Magalang')
 
         # Farm-specific alerts - match user's farm names (case-insensitive contains)
         user_farms = Farm.objects.filter(user=self.request.user).values_list('name', flat=True)
@@ -791,8 +791,8 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
             Q(expires_at__gte=now) | Q(expires_at__isnull=True)
         )
 
-        # Always include general alerts
-        general_q = Q(target_area='') | Q(target_area__isnull=True)
+        # Always include general alerts (empty, null, or broad geographic names)
+        general_q = Q(target_area='') | Q(target_area__isnull=True) | Q(target_area__icontains='Magalang')
 
         user_farms = Farm.objects.filter(user=request.user).values_list('name', flat=True)
         if user_farms:
