@@ -252,24 +252,24 @@ class UserActivity(models.Model):
         return f"{self.user.username} - {self.action}"
 
 
-# NotificationPreference model
+# Notification Preferences model
 class NotificationPreference(models.Model):
-    """User notification preferences"""
+    """User preferences for notifications"""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='notification_preferences')
     push_enabled = models.BooleanField(default=True)
     detection_alerts = models.BooleanField(default=True)
     critical_alerts = models.BooleanField(default=True)
     push_subscription = models.JSONField(null=True, blank=True, help_text='Web Push subscription JSON')
     updated_at = models.DateTimeField(auto_now=True)
-
+    
     class Meta:
         db_table = 'notification_preferences'
-
+    
     def __str__(self):
         return f"NotificationPrefs({self.user.username})"
 
 
-# Notification model (in-app notifications)
+# In-app Notification model
 class Notification(models.Model):
     """In-app notifications for users"""
     NOTIFICATION_TYPES = [
@@ -282,7 +282,7 @@ class Notification(models.Model):
         ('critical_pest', 'Critical Pest Alert'),
         ('system', 'System Notification'),
     ]
-
+    
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
     notification_type = models.CharField(max_length=30, choices=NOTIFICATION_TYPES)
     title = models.CharField(max_length=200)
@@ -290,10 +290,10 @@ class Notification(models.Model):
     is_read = models.BooleanField(default=False)
     related_id = models.IntegerField(null=True, blank=True, help_text='ID of related object (detection, farm, etc.)')
     created_at = models.DateTimeField(auto_now_add=True)
-
+    
     class Meta:
         db_table = 'notifications'
         ordering = ['-created_at']
-
+    
     def __str__(self):
-        return f"{self.user.username} - {self.title}"
+        return f"Notification({self.user.username}: {self.title})"

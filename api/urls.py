@@ -12,13 +12,11 @@ router.register(r'farms', views.FarmViewSet, basename='farm')
 router.register(r'farm-requests', views.FarmRequestViewSet, basename='farm-request')
 router.register(r'pests', views.PestInfoViewSet, basename='pest')
 router.register(r'alerts', views.AlertViewSet, basename='alert')
+router.register(r'notifications', views.NotificationViewSet, basename='notification')
 
 # ==================== VERIFICATION REQUESTS ====================
 # Users submit verification requests (RSBSA + valid ID) here
 router.register(r'verification-requests', views.VerificationRequestViewSet, basename='verification-request')
-
-# ==================== NOTIFICATIONS ====================
-router.register(r'notifications', views.NotificationViewSet, basename='notification')
 
 # ==================== ADMIN VIEWSETS ====================
 router.register(r'admin/users', views.AdminUserManagementViewSet, basename='admin-users')

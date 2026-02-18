@@ -204,14 +204,16 @@ class UserActivitySerializer(serializers.ModelSerializer):
         model = UserActivity
         fields = ['id', 'user', 'user_name', 'action', 'details', 'ip_address', 'timestamp']
         read_only_fields = ['id', 'timestamp']
+
 class NotificationPreferenceSerializer(serializers.ModelSerializer):
     class Meta:
         model = NotificationPreference
-        fields = ['push_enabled', 'detection_alerts', 'critical_alerts']
+        fields = ['id', 'detection_alerts', 'critical_alerts', 'push_enabled']
+        read_only_fields = ['id']
 
 
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
-        fields = ['id', 'notification_type', 'title', 'message', 'is_read', 'related_id', 'created_at']
+        fields = ['id', 'notification_type', 'title', 'message', 'related_id', 'is_read', 'created_at']
         read_only_fields = ['id', 'notification_type', 'title', 'message', 'related_id', 'created_at']
