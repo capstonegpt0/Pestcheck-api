@@ -123,10 +123,10 @@ class PestDetectionSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.username', read_only=True)
     farm_name = serializers.CharField(source='farm.name', read_only=True, allow_null=True)
     
-    # âœ… UPDATED: farm_id queryset will be dynamically filtered in __init__
+    # ... UPDATED: farm_id queryset will be dynamically filtered in __init__
     farm_id = serializers.PrimaryKeyRelatedField(
         source='farm',
-        queryset=Farm.objects.none(),  # Will be overridden in __init__
+        queryset=Farm.objects.none(), # Will be overridden in __init__
         required=False,
         allow_null=True
     )

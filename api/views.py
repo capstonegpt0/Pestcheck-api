@@ -83,7 +83,7 @@ def call_ml_api(image_path, crop_type='rice', max_retries=3):
             if response.status_code == 503:
                 # Model not loaded yet - wait and retry
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 10  # 10s, 20s, 30s
+                    wait_time = (attempt + 1) * 10 # 10s, 20s, 30s
                     print(f"ML service not ready, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
                     time.sleep(wait_time)
                     continue
@@ -476,8 +476,8 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             # Don't save if no pest was detected
             if not pest_name or pest_name == 'Unknown Pest' or pest_name == '' or confidence < 0.1:
                 print(f"[ERROR] Validation FAILED - No valid pest detected")
-                print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
-                print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
+                print(f" pest_name: '{pest_name}' (empty: {not pest_name})")
+                print(f" confidence: {confidence} (too low: {confidence < 0.1})")
                 return Response({
                     'error': 'No pest detected in the image. Please try another image with clearer pest visibility.',
                     'retry': True,
@@ -489,12 +489,12 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 }, status=400)
             
             print(f"[OK] Validation PASSED - Saving detection")
-            print(f"   pest_name: '{pest_name}'")
-            print(f"   confidence: {confidence}")
+            print(f" pest_name: '{pest_name}'")
+            print(f" confidence: {confidence}")
 
             # Determine crop type based on detected pest
             detected_crop_type = get_crop_from_pest(pest_name)
-            print(f"   determined crop_type: '{detected_crop_type}' (from pest: '{pest_name}')")
+            print(f" determined crop_type: '{detected_crop_type}' (from pest: '{pest_name}')")
 
             # Only save if we have a valid detection
             # Get confirmed and active from request, default to False (requires user confirmation)
@@ -504,18 +504,18 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             detection = PestDetection.objects.create(
                 user=request.user,
                 image=image,
-                crop_type=detected_crop_type,  # Use crop type determined from pest
-                pest_name=pest_name,  # Use validated pest_name
+                crop_type=detected_crop_type, # Use crop type determined from pest
+                pest_name=pest_name, # Use validated pest_name
                 pest_type=analysis.get('pest_key', ''),
-                confidence=confidence,  # Use validated confidence
+                confidence=confidence, # Use validated confidence
                 severity=analysis.get('severity', 'low'),
                 latitude=lat,
                 longitude=lng,
                 address=request.data.get('address', ''),
                 description=analysis.get('symptoms', ''),
                 status='pending',
-                confirmed=confirmed,  # User confirmation status
-                active=active_status,  # Whether detection is active/visible
+                confirmed=confirmed, # User confirmation status
+                active=active_status, # Whether detection is active/visible
                 detected_at=timezone.now()
             )
             log_activity(request.user, 'detected_pest', f"Pest: {detection.pest_name}", request)
@@ -670,7 +670,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         queryset = PestDetection.objects.all()
         queryset = queryset.filter(
             active=True, 
-            confirmed=True  # Only show user-confirmed detections
+            confirmed=True # Only show user-confirmed detections
         ).filter(Q(detected_at__gte=since) | Q(reported_at__gte=since))
         heatmap_points = [{
             'id': det.id,

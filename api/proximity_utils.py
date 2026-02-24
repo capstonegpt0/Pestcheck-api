@@ -12,10 +12,10 @@ from .models import Farm, PestDetection, Alert, User
 
 # ==================== CONFIGURATION ====================
 PROXIMITY_ALERT_CONFIG = {
-    'PROXIMITY_RADIUS_KM': 2.0,  # Alert farms within 2km
-    'DETECTION_THRESHOLD': 3,     # Trigger alert after 3+ detections
-    'TIME_WINDOW_DAYS': 7,        # Count detections from last 7 days
-    'ALERT_COOLDOWN_HOURS': 24,   # Don't spam - only one alert per 24 hours per area
+    'PROXIMITY_RADIUS_KM': 2.0, # Alert farms within 2km
+    'DETECTION_THRESHOLD': 3, # Trigger alert after 3+ detections
+    'TIME_WINDOW_DAYS': 7, # Count detections from last 7 days
+    'ALERT_COOLDOWN_HOURS': 24, # Don't spam - only one alert per 24 hours per area
 }
 
 
