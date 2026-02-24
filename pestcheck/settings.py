@@ -16,8 +16,8 @@ ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
     ".onrender.com",
-    "10.0.2.2",  # ✅ Android emulator
-    "10.0.2.2",  # ✅ Android emulator
+    "10.0.2.2",  # [OK] Android emulator
+    "10.0.2.2",  # [OK] Android emulator
 ]
 
 # Add Render external hostname if available
@@ -144,8 +144,8 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # =========================
-# CORS - ✅ UPDATED FOR CAPACITOR
-# CORS - ✅ UPDATED FOR CAPACITOR
+# CORS - [OK] UPDATED FOR CAPACITOR
+# CORS - [OK] UPDATED FOR CAPACITOR
 # =========================
 CORS_ALLOW_ALL_ORIGINS = False
 
@@ -155,13 +155,13 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
     "https://pestcheck.onrender.com",
 
-    # ✅ Capacitor native app origins
+    # [OK] Capacitor native app origins
     "capacitor://localhost",      # Capacitor iOS
     "http://localhost",           # Capacitor Android (real device)
     "ionic://localhost",          # Ionic Capacitor
     "http://10.0.2.2:8000",      # Android emulator
 
-    # ✅ Capacitor native app origins
+    # [OK] Capacitor native app origins
     "capacitor://localhost",      # Capacitor iOS
     "http://localhost",           # Capacitor Android (real device)
     "ionic://localhost",          # Ionic Capacitor
@@ -205,8 +205,8 @@ CORS_ALLOW_METHODS = [
 ]
 
 # =========================
-# CSRF - ✅ UPDATED FOR CAPACITOR
-# CSRF - ✅ FIXED FOR CAPACITOR
+# CSRF - [OK] UPDATED FOR CAPACITOR
+# CSRF - [OK] FIXED FOR CAPACITOR
 # =========================
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
@@ -215,12 +215,12 @@ CSRF_TRUSTED_ORIGINS = [
     "https://pestcheck.onrender.com",
     "https://*.onrender.com",
 
-    # ✅ Capacitor native app origins
+    # [OK] Capacitor native app origins
     "capacitor://localhost",      # Capacitor iOS
     "http://localhost",           # Capacitor Android (real device)
     "ionic://localhost",          # Ionic Capacitor
 
-    # ✅ Capacitor native app origins
+    # [OK] Capacitor native app origins
     "capacitor://localhost",      # Capacitor iOS
     "http://localhost",           # Capacitor Android (real device)
     "ionic://localhost",          # Ionic Capacitor
@@ -229,15 +229,15 @@ CSRF_TRUSTED_ORIGINS = [
 if RENDER_EXTERNAL_HOSTNAME:
     CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
 
-# ✅ Capacitor-friendly CSRF settings
+# [OK] Capacitor-friendly CSRF settings
 CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token
-CSRF_COOKIE_SAMESITE = 'None'  # ✅ Changed from 'Lax' — required for cross-origin cookie to be sent
-CSRF_COOKIE_SECURE = True      # ✅ SameSite=None requires Secure flag
+CSRF_COOKIE_SAMESITE = 'None'  # [OK] Changed from 'Lax' — required for cross-origin cookie to be sent
+CSRF_COOKIE_SECURE = True      # [OK] SameSite=None requires Secure flag
 
-# ✅ FIXED: Capacitor-friendly CSRF settings
+# [OK] FIXED: Capacitor-friendly CSRF settings
 CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF token
-CSRF_COOKIE_SAMESITE = 'Lax'  # ✅ Changed from 'None' - works better with Capacitor
-CSRF_COOKIE_SECURE = not DEBUG  # ✅ Only require HTTPS in production
+CSRF_COOKIE_SAMESITE = 'Lax'  # [OK] Changed from 'None' - works better with Capacitor
+CSRF_COOKIE_SECURE = not DEBUG  # [OK] Only require HTTPS in production
 CSRF_COOKIE_NAME = 'csrftoken'
 CSRF_USE_SESSIONS = False
 

@@ -183,7 +183,7 @@ def create_proximity_alert(affected_farm, detection_data, source_farm_name=None)
     pest_summary = ", ".join(pest_list)
     
     if source_farm_name:
-        title = f"⚠️ Pest Activity Detected Near {affected_farm.name}"
+        title = f"Warning: Pest Activity Detected Near {affected_farm.name}"
         message = (
             f"Warning: {detection_data['total']} pest detection(s) reported within "
             f"{PROXIMITY_ALERT_CONFIG['PROXIMITY_RADIUS_KM']}km of your farm in the past "
@@ -194,7 +194,7 @@ def create_proximity_alert(affected_farm, detection_data, source_farm_name=None)
             f"implement preventive measures."
         )
     else:
-        title = f"⚠️ Pest Activity Detected in Your Area"
+        title = f"Warning: Pest Activity Detected in Your Area"
         message = (
             f"Warning: {detection_data['total']} pest detection(s) reported within "
             f"{PROXIMITY_ALERT_CONFIG['PROXIMITY_RADIUS_KM']}km of {affected_farm.name} "
