@@ -8,7 +8,7 @@ from django.db.models import Count, Q
 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from .models import PestDetection, Farm
 from .serializers import PestDetectionSerializer
 from rest_framework import viewsets, status, generics, permissions
@@ -27,7 +27,7 @@ from .serializers import (
 from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
 from .utils import get_crop_from_pest
 
-# [OK] NEW: Import proximity alert utilities
+# ✅ NEW: Import proximity alert utilities
 from .proximity_utils import (
     check_and_create_proximity_alerts,
     check_proximity_alerts_for_farm,
@@ -83,7 +83,7 @@ def call_ml_api(image_path, crop_type='rice', max_retries=3):
             if response.status_code == 503:
                 # Model not loaded yet - wait and retry
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 10 # 10s, 20s, 30s
+                    wait_time = (attempt + 1) * 10  # 10s, 20s, 30s
                     print(f"ML service not ready, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
                     time.sleep(wait_time)
                     continue
@@ -386,7 +386,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         # All users see all detections for collaborative monitoring
         queryset = PestDetection.objects.all()
 
-        # Geofence filter [OK] only Magalang area
+        # Geofence filter ✅ only Magalang area
         queryset = queryset.filter(
             latitude__gte=MAGALANG_BOUNDS['south'],
             latitude__lte=MAGALANG_BOUNDS['north'],
@@ -467,17 +467,17 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             print(f"ML API response: {analysis}")
 
-            # [OK] ADD VALIDATION HERE - Check if pest was actually detected
+            # ✅ ADD VALIDATION HERE - Check if pest was actually detected
             pest_name = analysis.get('pest_name', '')
             confidence = analysis.get('confidence', 0.0)
             
-            print(f"[SEARCH] Validation - pest_name: '{pest_name}', confidence: {confidence}")
+            print(f"🔍 Validation - pest_name: '{pest_name}', confidence: {confidence}")
             
             # Don't save if no pest was detected
             if not pest_name or pest_name == 'Unknown Pest' or pest_name == '' or confidence < 0.1:
-                print(f"[ERROR] Validation FAILED - No valid pest detected")
-                print(f" pest_name: '{pest_name}' (empty: {not pest_name})")
-                print(f" confidence: {confidence} (too low: {confidence < 0.1})")
+                print(f"❌ Validation FAILED - No valid pest detected")
+                print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
+                print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
                 return Response({
                     'error': 'No pest detected in the image. Please try another image with clearer pest visibility.',
                     'retry': True,
@@ -488,13 +488,13 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     }
                 }, status=400)
             
-            print(f"[OK] Validation PASSED - Saving detection")
-            print(f" pest_name: '{pest_name}'")
-            print(f" confidence: {confidence}")
+            print(f"✅ Validation PASSED - Saving detection")
+            print(f"   pest_name: '{pest_name}'")
+            print(f"   confidence: {confidence}")
 
             # Determine crop type based on detected pest
             detected_crop_type = get_crop_from_pest(pest_name)
-            print(f" determined crop_type: '{detected_crop_type}' (from pest: '{pest_name}')")
+            print(f"   determined crop_type: '{detected_crop_type}' (from pest: '{pest_name}')")
 
             # Only save if we have a valid detection
             # Get confirmed and active from request, default to False (requires user confirmation)
@@ -504,18 +504,18 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             detection = PestDetection.objects.create(
                 user=request.user,
                 image=image,
-                crop_type=detected_crop_type, # Use crop type determined from pest
-                pest_name=pest_name, # Use validated pest_name
+                crop_type=detected_crop_type,  # Use crop type determined from pest
+                pest_name=pest_name,  # Use validated pest_name
                 pest_type=analysis.get('pest_key', ''),
-                confidence=confidence, # Use validated confidence
+                confidence=confidence,  # Use validated confidence
                 severity=analysis.get('severity', 'low'),
                 latitude=lat,
                 longitude=lng,
                 address=request.data.get('address', ''),
                 description=analysis.get('symptoms', ''),
                 status='pending',
-                confirmed=confirmed, # User confirmation status
-                active=active_status, # Whether detection is active/visible
+                confirmed=confirmed,  # User confirmation status
+                active=active_status,  # Whether detection is active/visible
                 detected_at=timezone.now()
             )
             log_activity(request.user, 'detected_pest', f"Pest: {detection.pest_name}", request)
@@ -531,12 +531,12 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 'num_detections': analysis.get('num_detections', 1)
             })
             
-            print(f"[OK] Returning successful detection response")
+            print(f"✅ Returning successful detection response")
             return Response(response_data, status=201)
 
         except Exception as e:
             error_message = str(e)
-            print(f"[ERROR] Detection error: {error_message}")
+            print(f"❌ Detection error: {error_message}")
             
             # Provide helpful error messages
             if "starting up" in error_message or "503" in error_message:
@@ -560,15 +560,15 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 
     def partial_update(self, request, *args, **kwargs):
         detection_id = kwargs.get('pk')
-        print(f"[LOG] partial_update called for detection {detection_id}")
-        print(f"[LOG] Request data: {dict(request.data)}")
-        print(f"[LOG] Content-Type: {request.content_type}")
+        print(f"📋 partial_update called for detection {detection_id}")
+        print(f"📋 Request data: {dict(request.data)}")
+        print(f"📋 Content-Type: {request.content_type}")
         try:
             instance = PestDetection.objects.get(id=detection_id)
             if instance.user != request.user and request.user.role != 'admin':
                 return Response({'error': 'Permission denied'}, status=403)
 
-            # [OK] NEW: Handle farm_id updates
+            # ✅ NEW: Handle farm_id updates
             if 'farm_id' in request.data:
                 farm_id = request.data['farm_id']
                 if farm_id:
@@ -585,7 +585,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 else:
                     instance.farm = None
 
-            # [OK] NEW: Handle severity updates (required for damage assessment)
+            # ✅ NEW: Handle severity updates (required for damage assessment)
             if 'severity' in request.data:
                 valid_severities = ['low', 'medium', 'high', 'critical']
                 severity = request.data['severity']
@@ -595,7 +595,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     }, status=400)
                 instance.severity = severity
             
-            # [OK] NEW: Handle confirmed field updates
+            # ✅ NEW: Handle confirmed field updates
             if 'confirmed' in request.data:
                 instance.confirmed = request.data['confirmed']
             
@@ -605,7 +605,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if 'status' in request.data:
                 instance.status = request.data['status']
             
-            # [OK] NEW: Allow updating description
+            # ✅ NEW: Allow updating description
             if 'description' in request.data:
                 instance.description = request.data['description']
             
@@ -613,19 +613,19 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if 'latitude' in request.data:
                 try:
                     new_lat = float(request.data['latitude'])
-                    print(f"[LOG] Updating latitude: {instance.latitude} -> {new_lat}")
+                    print(f"📋 Updating latitude: {instance.latitude} -> {new_lat}")
                     instance.latitude = new_lat
                 except (ValueError, TypeError) as e:
-                    print(f"[WARN] Invalid latitude value: {request.data['latitude']} - {e}")
+                    print(f"⚠️ Invalid latitude value: {request.data['latitude']} - {e}")
             if 'longitude' in request.data:
                 try:
                     new_lng = float(request.data['longitude'])
-                    print(f"[LOG] Updating longitude: {instance.longitude} -> {new_lng}")
+                    print(f"📋 Updating longitude: {instance.longitude} -> {new_lng}")
                     instance.longitude = new_lng
                 except (ValueError, TypeError) as e:
-                    print(f"[WARN] Invalid longitude value: {request.data['longitude']} - {e}")
+                    print(f"⚠️ Invalid longitude value: {request.data['longitude']} - {e}")
             
-            print(f"[LOG] Final coords before save: lat={instance.latitude}, lng={instance.longitude}")
+            print(f"📋 Final coords before save: lat={instance.latitude}, lng={instance.longitude}")
             
             if not instance.active or instance.status == 'resolved':
                 instance.resolved_at = timezone.now()
@@ -633,17 +633,17 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             instance.save()
             
-            # [OK] NEW: Check for proximity alerts when detection is confirmed
+            # ✅ NEW: Check for proximity alerts when detection is confirmed
             if 'confirmed' in request.data and instance.confirmed and instance.active and instance.farm:
                 try:
                     created_alerts = check_and_create_proximity_alerts(instance)
                     if created_alerts:
-                        print(f"[OK] Created {len(created_alerts)} proximity alert(s) for detection {instance.id}")
+                        print(f"✅ Created {len(created_alerts)} proximity alert(s) for detection {instance.id}")
                 except Exception as e:
                     # Don't fail the update if alert creation fails
-                    print(f"[WARN] Failed to create proximity alerts: {str(e)}")
+                    print(f"⚠️ Failed to create proximity alerts: {str(e)}")
             
-            # [OK] UPDATED: Include farm and severity in log message
+            # ✅ UPDATED: Include farm and severity in log message
             log_message = f'Detection ID: {instance.id}, Severity: {instance.severity}'
             if instance.farm:
                 log_message += f', Farm: {instance.farm.name}'
@@ -670,7 +670,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         queryset = PestDetection.objects.all()
         queryset = queryset.filter(
             active=True, 
-            confirmed=True # Only show user-confirmed detections
+            confirmed=True  # Only show user-confirmed detections
         ).filter(Q(detected_at__gte=since) | Q(reported_at__gte=since))
         heatmap_points = [{
             'id': det.id,
@@ -896,7 +896,7 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
     queryset = VerificationRequest.objects.all()
     serializer_class = VerificationRequestSerializer
     permission_classes = [IsAdmin]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
