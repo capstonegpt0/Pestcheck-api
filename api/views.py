@@ -475,18 +475,13 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             # Don't save if no pest was detected
             if not pest_name or pest_name == 'Unknown Pest' or pest_name == '' or confidence < 0.1:
-                print(f"❌ Validation FAILED - No valid pest detected")
-                print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
-                print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
+                print(f"No valid pest detected - pest_name: '{pest_name}', confidence: {confidence}")
                 return Response({
-                    'error': 'No pest detected in the image. Please try another image with clearer pest visibility.',
-                    'retry': True,
-                    'debug': {
-                        'pest_name': pest_name,
-                        'confidence': confidence,
-                        'ml_response': analysis
-                    }
-                }, status=400)
+                    'no_pest_detected': True,
+                    'message': 'No pest was detected in the image. Please try again with a clearer photo of the affected plant or pest.',
+                    'pest_name': '',
+                    'confidence': 0.0,
+                }, status=200)
             
             print(f"✅ Validation PASSED - Saving detection")
             print(f"   pest_name: '{pest_name}'")
