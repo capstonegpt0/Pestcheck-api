@@ -910,15 +910,15 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
             )
 
         # Mark user as verified
-        vr.user.is_verified = True
-        vr.user.save()
+        User.objects.filter(pk=vr.user.pk).update(is_verified=True)
 
-        # Update the request
-        vr.status = 'approved'
-        vr.reviewed_by = request.user
-        vr.reviewed_at = timezone.now()
-        vr.review_notes = request.data.get('review_notes', '')
-        vr.save()
+        # Update the request using queryset.update() to avoid ImageField re-validation
+        VerificationRequest.objects.filter(pk=vr.pk).update(
+            status='approved',
+            reviewed_by=request.user,
+            reviewed_at=timezone.now(),
+            review_notes=request.data.get('review_notes', '')
+        )
 
         log_activity(
             request.user,
@@ -949,11 +949,15 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        vr.status = 'rejected'
-        vr.reviewed_by = request.user
-        vr.reviewed_at = timezone.now()
-        vr.review_notes = request.data.get('review_notes', 'Rejected')
-        vr.save()
+        review_notes = request.data.get('review_notes', 'Rejected')
+
+        # Update the request using queryset.update() to avoid ImageField re-validation
+        VerificationRequest.objects.filter(pk=vr.pk).update(
+            status='rejected',
+            reviewed_by=request.user,
+            reviewed_at=timezone.now(),
+            review_notes=review_notes
+        )
 
         log_activity(
             request.user,
