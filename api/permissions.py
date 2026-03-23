@@ -1,9 +1,18 @@
 from rest_framework import permissions
 
 class IsAdmin(permissions.BasePermission):
-    """Only admins can access"""
+    """Only full admins can access"""
     def has_permission(self, request, view):
         return request.user and request.user.is_authenticated and request.user.role == 'admin'
+
+class IsAdminOrMAOStaff(permissions.BasePermission):
+    """Admin or MAO staff can access"""
+    def has_permission(self, request, view):
+        return (
+            request.user and
+            request.user.is_authenticated and
+            request.user.role in ('admin', 'mao_staff')
+        )
 
 class IsAdminOrReadOnly(permissions.BasePermission):
     """Admin can edit, others can only read"""

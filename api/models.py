@@ -6,6 +6,7 @@ from django.utils import timezone
 class User(AbstractUser):
     ROLE_CHOICES = [
         ('admin', 'Administrator'),
+        ('mao_staff', 'MAO Staff'),
         ('farmer', 'Farmer'),
     ]
     
@@ -19,6 +20,13 @@ class User(AbstractUser):
     
     def is_admin(self):
         return self.role == 'admin'
+    
+    def is_mao_staff(self):
+        return self.role == 'mao_staff'
+    
+    def is_staff_user(self):
+        """Returns True for admin or MAO staff"""
+        return self.role in ('admin', 'mao_staff')
     
     def is_farmer(self):
         return self.role == 'farmer'

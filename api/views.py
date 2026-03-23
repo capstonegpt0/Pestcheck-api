@@ -8,7 +8,7 @@ from django.db.models import Count, Q
 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.parsers import MultiPartParser, FormParser
 from .models import PestDetection, Farm
 from .serializers import PestDetectionSerializer
 from rest_framework import viewsets, status, generics, permissions
@@ -24,7 +24,7 @@ from .serializers import (
     InfestationReportSerializer, AlertSerializer, UserActivitySerializer,
     NotificationPreferenceSerializer, NotificationSerializer
 )
-from .permissions import IsAdmin, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
+from .permissions import IsAdmin, IsAdminOrMAOStaff, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
 from .utils import get_crop_from_pest
 
 # ✅ NEW: Import proximity alert utilities
@@ -475,13 +475,18 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             # Don't save if no pest was detected
             if not pest_name or pest_name == 'Unknown Pest' or pest_name == '' or confidence < 0.1:
-                print(f"No valid pest detected - pest_name: '{pest_name}', confidence: {confidence}")
+                print(f"❌ Validation FAILED - No valid pest detected")
+                print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
+                print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
                 return Response({
-                    'no_pest_detected': True,
-                    'message': 'No pest was detected in the image. Please try again with a clearer photo of the affected plant or pest.',
-                    'pest_name': '',
-                    'confidence': 0.0,
-                }, status=200)
+                    'error': 'No pest detected in the image. Please try another image with clearer pest visibility.',
+                    'retry': True,
+                    'debug': {
+                        'pest_name': pest_name,
+                        'confidence': confidence,
+                        'ml_response': analysis
+                    }
+                }, status=400)
             
             print(f"✅ Validation PASSED - Saving detection")
             print(f"   pest_name: '{pest_name}'")
@@ -887,11 +892,11 @@ class VerificationRequestViewSet(viewsets.ModelViewSet):
 
 # ==================== ADMIN VERIFICATION REQUEST MANAGEMENT ====================
 class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
-    """Admin can view all verification requests and approve/reject them"""
+    """Admin and MAO staff can view and review verification requests"""
     queryset = VerificationRequest.objects.all()
     serializer_class = VerificationRequestSerializer
-    permission_classes = [IsAdmin]
-    parser_classes = [JSONParser, MultiPartParser, FormParser]
+    permission_classes = [IsAdminOrMAOStaff]
+    parser_classes = [MultiPartParser, FormParser]
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
@@ -905,15 +910,15 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
             )
 
         # Mark user as verified
-        User.objects.filter(pk=vr.user.pk).update(is_verified=True)
+        vr.user.is_verified = True
+        vr.user.save()
 
-        # Update the request using queryset.update() to avoid ImageField re-validation
-        VerificationRequest.objects.filter(pk=vr.pk).update(
-            status='approved',
-            reviewed_by=request.user,
-            reviewed_at=timezone.now(),
-            review_notes=request.data.get('review_notes', '')
-        )
+        # Update the request
+        vr.status = 'approved'
+        vr.reviewed_by = request.user
+        vr.reviewed_at = timezone.now()
+        vr.review_notes = request.data.get('review_notes', '')
+        vr.save()
 
         log_activity(
             request.user,
@@ -944,15 +949,11 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        review_notes = request.data.get('review_notes', 'Rejected')
-
-        # Update the request using queryset.update() to avoid ImageField re-validation
-        VerificationRequest.objects.filter(pk=vr.pk).update(
-            status='rejected',
-            reviewed_by=request.user,
-            reviewed_at=timezone.now(),
-            review_notes=review_notes
-        )
+        vr.status = 'rejected'
+        vr.reviewed_by = request.user
+        vr.reviewed_at = timezone.now()
+        vr.review_notes = request.data.get('review_notes', 'Rejected')
+        vr.save()
 
         log_activity(
             request.user,
@@ -986,6 +987,71 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
     serializer_class = UserSerializer
     permission_classes = [IsAdmin]
     
+    @action(detail=False, methods=['post'])
+    def create_staff(self, request):
+        """Admin creates a MAO staff account directly"""
+        data = request.data
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        first_name = data.get('first_name', '').strip()
+        last_name = data.get('last_name', '').strip()
+        phone = data.get('phone', '').strip()
+        role = data.get('role', 'mao_staff')
+
+        # Validate role — only mao_staff can be created this way
+        if role not in ('mao_staff',):
+            return Response(
+                {'error': 'Only mao_staff accounts can be created via this endpoint.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Basic validation
+        errors = {}
+        if not username:
+            errors['username'] = 'Username is required.'
+        elif User.objects.filter(username=username).exists():
+            errors['username'] = 'A user with that username already exists.'
+        if not email:
+            errors['email'] = 'Email is required.'
+        elif User.objects.filter(email=email).exists():
+            errors['email'] = 'A user with that email already exists.'
+        if not password or len(password) < 8:
+            errors['password'] = 'Password must be at least 8 characters.'
+        if not first_name:
+            errors['first_name'] = 'First name is required.'
+        if not last_name:
+            errors['last_name'] = 'Last name is required.'
+
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
+            role='mao_staff',
+            is_verified=True,  # Staff accounts are pre-verified
+        )
+
+        log_activity(
+            request.user,
+            'created_mao_staff',
+            f'Created MAO staff account: {username}',
+            request
+        )
+
+        return Response(
+            {
+                'message': f'MAO Staff account for {first_name} {last_name} created successfully.',
+                'user': UserSerializer(user).data
+            },
+            status=status.HTTP_201_CREATED
+        )
+
     @action(detail=True, methods=['post'])
     def verify_user(self, request, pk=None):
         user = self.get_object()
@@ -998,24 +1064,26 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
     def change_role(self, request, pk=None):
         user = self.get_object()
         new_role = request.data.get('role')
-        if new_role in ['admin', 'farmer']:
+        if new_role in ['admin', 'mao_staff', 'farmer']:
             user.role = new_role
             user.save()
             log_activity(request.user, 'changed_user_role', f'User: {user.username}, New role: {new_role}', request)
             return Response({'message': f'User role changed to {new_role}'})
-        return Response({'error': 'Invalid role'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error': 'Invalid role. Must be admin, mao_staff, or farmer'}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['get'])
     def statistics(self, request):
         total_users = User.objects.count()
         farmers = User.objects.filter(role='farmer').count()
         admins = User.objects.filter(role='admin').count()
+        mao_staff = User.objects.filter(role='mao_staff').count()
         verified = User.objects.filter(is_verified=True).count()
         
         return Response({
             'total_users': total_users,
             'farmers': farmers,
             'admins': admins,
+            'mao_staff': mao_staff,
             'verified_users': verified,
             'unverified_users': total_users - verified
         })
@@ -1106,10 +1174,10 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
         
 # ==================== ADMIN FARM REQUEST MANAGEMENT (NEW) ====================
 class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
-    """Admin can manage all farm requests and approve/reject them"""
+    """Admin and MAO staff can manage farm requests"""
     queryset = FarmRequest.objects.all()
     serializer_class = FarmRequestSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdminOrMAOStaff]
     
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
@@ -1227,7 +1295,7 @@ class AdminPestInfoManagementViewSet(viewsets.ModelViewSet):
 class AdminAlertManagementViewSet(viewsets.ModelViewSet):
     queryset = Alert.objects.all()
     serializer_class = AlertSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdminOrMAOStaff]
     
     def perform_create(self, serializer):
         alert = serializer.save(created_by=self.request.user)
