@@ -146,6 +146,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # =========================
 # Allow all origins when DEBUG=True (local development)
 CORS_ALLOW_ALL_ORIGINS = DEBUG
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
@@ -159,6 +161,7 @@ CORS_ALLOWED_ORIGINS = [
     "ionic://localhost",
     "http://10.0.2.2:8000",
     "http://127.0.0.1:5500",
+    "http://localhost:5500",
 ]
 
 if RENDER_EXTERNAL_HOSTNAME:
@@ -201,6 +204,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost",
     "ionic://localhost",
     "http://127.0.0.1:5500",
+    "http://localhost:5500",
 ]
 
 if RENDER_EXTERNAL_HOSTNAME:
