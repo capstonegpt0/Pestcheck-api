@@ -8,7 +8,7 @@ from django.db.models import Count, Q
 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from .models import PestDetection, Farm
 from .serializers import PestDetectionSerializer
 from rest_framework import viewsets, status, generics, permissions
@@ -902,7 +902,9 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
     queryset = VerificationRequest.objects.all()
     serializer_class = VerificationRequestSerializer
     permission_classes = [IsAdminOrMAOStaff]
-    parser_classes = [MultiPartParser, FormParser]
+    # JSONParser must be first so approve/reject actions (which send JSON) are parsed correctly.
+    # MultiPartParser/FormParser are kept for any file-upload endpoints on this viewset.
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
@@ -916,15 +918,15 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
             )
 
         # Mark user as verified
-        vr.user.is_verified = True
-        vr.user.save()
+        User.objects.filter(pk=vr.user.pk).update(is_verified=True)
 
-        # Update the request
-        vr.status = 'approved'
-        vr.reviewed_by = request.user
-        vr.reviewed_at = timezone.now()
-        vr.review_notes = request.data.get('review_notes', '')
-        vr.save()
+        # Use queryset.update() to avoid re-validating the ImageField on vr.save()
+        VerificationRequest.objects.filter(pk=vr.pk).update(
+            status='approved',
+            reviewed_by=request.user,
+            reviewed_at=timezone.now(),
+            review_notes=request.data.get('review_notes', '')
+        )
 
         log_activity(
             request.user,
@@ -955,11 +957,15 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        vr.status = 'rejected'
-        vr.reviewed_by = request.user
-        vr.reviewed_at = timezone.now()
-        vr.review_notes = request.data.get('review_notes', 'Rejected')
-        vr.save()
+        review_notes = request.data.get('review_notes', 'Rejected')
+
+        # Use queryset.update() to avoid re-validating the ImageField on vr.save()
+        VerificationRequest.objects.filter(pk=vr.pk).update(
+            status='rejected',
+            reviewed_by=request.user,
+            reviewed_at=timezone.now(),
+            review_notes=review_notes
+        )
 
         log_activity(
             request.user,
