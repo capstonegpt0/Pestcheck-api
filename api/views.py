@@ -467,6 +467,15 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             print(f"ML API response: {analysis}")
 
+            # ✅ Handle no_pest_detected flag from ML service directly
+            if analysis.get('no_pest_detected'):
+                return Response({
+                    'no_pest_detected': True,
+                    'message': analysis.get('message', 'No pest was detected. Please try again with a clearer photo of the affected plant or pest.'),
+                    'pest_name': '',
+                    'confidence': 0.0,
+                }, status=200)
+
             # ✅ ADD VALIDATION HERE - Check if pest was actually detected
             pest_name = analysis.get('pest_name', '')
             confidence = analysis.get('confidence', 0.0)
@@ -479,14 +488,11 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
                 print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
                 return Response({
-                    'error': 'No pest detected in the image. Please try another image with clearer pest visibility.',
-                    'retry': True,
-                    'debug': {
-                        'pest_name': pest_name,
-                        'confidence': confidence,
-                        'ml_response': analysis
-                    }
-                }, status=400)
+                    'no_pest_detected': True,
+                    'message': 'No pest was detected. Please try again with a clearer photo of the affected plant or pest.',
+                    'pest_name': '',
+                    'confidence': 0.0,
+                }, status=200)
             
             print(f"✅ Validation PASSED - Saving detection")
             print(f"   pest_name: '{pest_name}'")
