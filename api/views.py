@@ -45,7 +45,7 @@ MAGALANG_BOUNDS = {
 
 HUGGINGFACE_ML_URL = os.environ.get(
     'HUGGINGFACE_ML_URL', 
-    'https://capstonegpt0-pestcheck-ml-test.hf.space'
+    'https://capstonegpt0-pestcheck-ml-v3.hf.space'
 )
 
 # ==================== HELPER FUNCTIONS ====================
