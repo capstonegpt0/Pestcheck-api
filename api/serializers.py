@@ -80,8 +80,13 @@ class VerificationRequestSerializer(serializers.ModelSerializer):
         if obj.valid_id_image:
             request = self.context.get('request')
             if request:
-                return request.build_absolute_uri(obj.valid_id_image.url)
-            return obj.valid_id_image.url
+                url = request.build_absolute_uri(obj.valid_id_image.url)
+                # Render runs behind a proxy — force https
+                return url.replace('http://', 'https://', 1)
+            # Fallback: build URL manually from env
+            import os
+            backend_root = os.environ.get('BACKEND_URL', 'https://pestcheck-api.onrender.com')
+            return f"{backend_root.rstrip('/')}{obj.valid_id_image.url}"
         return None
 
 
@@ -123,10 +128,10 @@ class PestDetectionSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.username', read_only=True)
     farm_name = serializers.CharField(source='farm.name', read_only=True, allow_null=True)
     
-    # ... UPDATED: farm_id queryset will be dynamically filtered in __init__
+    # âœ… UPDATED: farm_id queryset will be dynamically filtered in __init__
     farm_id = serializers.PrimaryKeyRelatedField(
         source='farm',
-        queryset=Farm.objects.none(), # Will be overridden in __init__
+        queryset=Farm.objects.none(),  # Will be overridden in __init__
         required=False,
         allow_null=True
     )
