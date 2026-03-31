@@ -4,24 +4,12 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('api', '0008_farmrequest'),  # Replace with your actual last migration name
+        ('api', '0008_farmrequest'),
     ]
 
     operations = [
-        # Add address field to FarmRequest
-        migrations.AddField(
-            model_name='farmrequest',
-            name='address',
-            field=models.CharField(
-                blank=True,
-                default='',
-                help_text='General address or location description of the farm',
-                max_length=500,
-            ),
-            preserve_default=False,
-        ),
-
-        # Add address field to Farm
+        # Only add address to Farm - FarmRequest already has it from 0008
+        # User.role mao_staff choice already added in 0007
         migrations.AddField(
             model_name='farm',
             name='address',
@@ -32,20 +20,5 @@ class Migration(migrations.Migration):
                 max_length=500,
             ),
             preserve_default=False,
-        ),
-
-        # Update the role field on User to include mao_staff choice
-        migrations.AlterField(
-            model_name='user',
-            name='role',
-            field=models.CharField(
-                choices=[
-                    ('admin', 'Administrator'),
-                    ('mao_staff', 'MAO Staff'),
-                    ('farmer', 'Farmer'),
-                ],
-                default='farmer',
-                max_length=20,
-            ),
         ),
     ]
