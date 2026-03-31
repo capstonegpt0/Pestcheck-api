@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('api', '0008_farmreqest'),  # Replace with your actual last migration name
+        ('api', '0008_farmrequest'),  # Replace with your actual last migration name
     ]
 
     operations = [
