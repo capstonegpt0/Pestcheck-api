@@ -1223,7 +1223,6 @@ class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
             farm = Farm.objects.create(
                 user=farm_request.user,
                 name=farm_request.name,
-                address=farm_request.address or '',
                 lat=farm_request.lat,
                 lng=farm_request.lng,
                 size=farm_request.size,
