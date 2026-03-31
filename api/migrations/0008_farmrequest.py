@@ -5,7 +5,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('api', '0007_alter_user_role'),
+        ('api', '0007_add_mao_staff'),
     ]
 
     operations = [
