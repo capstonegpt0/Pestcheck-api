@@ -5,6 +5,7 @@ import time
 from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Count, Q
+from django.core.files import File
 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
@@ -27,7 +28,7 @@ from .serializers import (
 from .permissions import IsAdmin, IsAdminOrMAOStaff, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
 from .utils import get_crop_from_pest
 
-# ✅ NEW: Import proximity alert utilities
+# Import proximity alert utilities
 from .proximity_utils import (
     check_and_create_proximity_alerts,
     check_proximity_alerts_for_farm,
@@ -302,7 +303,7 @@ def register_push_subscription(request):
     return Response({'status': 'subscribed'})
 
 
-# ==================== FARM REQUEST VIEWSET (NEW) ====================
+# ==================== FARM REQUEST VIEWSET ====================
 class FarmRequestViewSet(viewsets.ModelViewSet):
     """
     Farmers can CREATE farm requests
@@ -357,7 +358,7 @@ class FarmRequestViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
-# ==================== FARM VIEWSET (UPDATED - READ ONLY FOR FARMERS) ====================
+# ==================== FARM VIEWSET ====================
 class FarmViewSet(viewsets.ReadOnlyModelViewSet):
     """
     All authenticated users can VIEW all farms (Read-Only).
@@ -367,7 +368,6 @@ class FarmViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Everyone sees every farm for collaborative monitoring
         return Farm.objects.all()
 
 
@@ -377,16 +377,13 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
     serializer_class = PestDetectionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    # Automatically set the user on creation
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
-    
 
     def get_queryset(self):
-        # All users see all detections for collaborative monitoring
         queryset = PestDetection.objects.all()
 
-        # Geofence filter ✅ only Magalang area
+        # Geofence filter - only Magalang area
         queryset = queryset.filter(
             latitude__gte=MAGALANG_BOUNDS['south'],
             latitude__lte=MAGALANG_BOUNDS['north'],
@@ -394,7 +391,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             longitude__lte=MAGALANG_BOUNDS['east']
         )
 
-        # Optional filters
         if self.request.query_params.get('my_detections'):
             queryset = queryset.filter(user=self.request.user)
 
@@ -413,8 +409,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             farm_id = request.data.get('farm_id')
             if farm_id:
                 farm = Farm.objects.filter(id=farm_id, user=request.user).first()
-
-            image.seek(0)
 
             detection = PestDetection.objects.create(
                 user=request.user,
@@ -452,11 +446,12 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             lng = float(request.data.get('longitude', 0))
             crop_type = request.data.get('crop_type', 'rice')
             image = request.FILES.get('image')
+            image_name = image.name if image else 'detection.jpg'
 
             if not image:
                 return Response({'error': 'No image provided'}, status=400)
 
-            # Save temporary file
+            # Save to temp file for ML API
             with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_file:
                 for chunk in image.chunks():
                     tmp_file.write(chunk)
@@ -469,7 +464,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             print(f"ML API response: {analysis}")
 
-            # ✅ Handle no_pest_detected flag from ML service directly
+            # Handle no_pest_detected flag from ML service directly
             if analysis.get('no_pest_detected'):
                 return Response({
                     'no_pest_detected': True,
@@ -478,7 +473,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     'confidence': 0.0,
                 }, status=200)
 
-            # ✅ ADD VALIDATION HERE - Check if pest was actually detected
+            # Check if pest was actually detected
             pest_name = analysis.get('pest_name', '')
             confidence = analysis.get('confidence', 0.0)
             
@@ -487,8 +482,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             # Don't save if no pest was detected
             if not pest_name or pest_name == 'Unknown Pest' or pest_name == '' or confidence < 0.1:
                 print(f"❌ Validation FAILED - No valid pest detected")
-                print(f"   pest_name: '{pest_name}' (empty: {not pest_name})")
-                print(f"   confidence: {confidence} (too low: {confidence < 0.1})")
                 return Response({
                     'no_pest_detected': True,
                     'message': 'No pest was detected. Please try again with a clearer photo of the affected plant or pest.',
@@ -504,28 +497,40 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             detected_crop_type = get_crop_from_pest(pest_name)
             print(f"   determined crop_type: '{detected_crop_type}' (from pest: '{pest_name}')")
 
-            # Only save if we have a valid detection
-            # Get confirmed and active from request, default to False (requires user confirmation)
             confirmed = request.data.get('confirmed', 'false').lower() == 'true'
             active_status = request.data.get('active', 'false').lower() == 'true'
-            
+
+            # Step 1: Create detection record WITHOUT image first
             detection = PestDetection.objects.create(
                 user=request.user,
-                image=image,
-                crop_type=detected_crop_type,  # Use crop type determined from pest
-                pest_name=pest_name,  # Use validated pest_name
+                crop_type=detected_crop_type,
+                pest_name=pest_name,
                 pest_type=analysis.get('pest_key', ''),
-                confidence=confidence,  # Use validated confidence
+                confidence=confidence,
                 severity=analysis.get('severity', 'low'),
                 latitude=lat,
                 longitude=lng,
                 address=request.data.get('address', ''),
                 description=analysis.get('symptoms', ''),
                 status='pending',
-                confirmed=confirmed,  # User confirmation status
-                active=active_status,  # Whether detection is active/visible
+                confirmed=confirmed,
+                active=active_status,
                 detected_at=timezone.now()
             )
+
+            # Step 2: Upload image from temp file (fresh file handle for Cloudinary)
+            try:
+                with open(temp_path, 'rb') as f:
+                    detection.image.save(
+                        image_name,
+                        File(f),
+                        save=True
+                    )
+                print(f"✅ Image uploaded successfully for detection {detection.id}")
+            except Exception as img_err:
+                # Image upload failed but detection is saved - log and continue
+                print(f"⚠️ Image upload failed: {img_err} - detection saved without image")
+
             log_activity(request.user, 'detected_pest', f"Pest: {detection.pest_name}", request)
 
             # Return enriched response
@@ -546,7 +551,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             error_message = str(e)
             print(f"❌ Detection error: {error_message}")
             
-            # Provide helpful error messages
             if "starting up" in error_message or "503" in error_message:
                 return Response({
                     'error': 'ML service is warming up. Please wait 30 seconds and try again.',
@@ -576,12 +580,11 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if instance.user != request.user and request.user.role != 'admin':
                 return Response({'error': 'Permission denied'}, status=403)
 
-            # ✅ NEW: Handle farm_id updates
+            # Handle farm_id updates
             if 'farm_id' in request.data:
                 farm_id = request.data['farm_id']
                 if farm_id:
                     try:
-                        # Verify the farm exists and user has permission
                         farm = Farm.objects.get(id=farm_id)
                         if farm.user != request.user and request.user.role != 'admin':
                             return Response({
@@ -593,7 +596,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 else:
                     instance.farm = None
 
-            # ✅ NEW: Handle severity updates (required for damage assessment)
+            # Handle severity updates
             if 'severity' in request.data:
                 valid_severities = ['low', 'medium', 'high', 'critical']
                 severity = request.data['severity']
@@ -603,7 +606,7 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     }, status=400)
                 instance.severity = severity
             
-            # ✅ NEW: Handle confirmed field updates
+            # Handle confirmed field updates
             if 'confirmed' in request.data:
                 instance.confirmed = request.data['confirmed']
             
@@ -613,11 +616,11 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if 'status' in request.data:
                 instance.status = request.data['status']
             
-            # ✅ NEW: Allow updating description
+            # Allow updating description
             if 'description' in request.data:
                 instance.description = request.data['description']
             
-            # Allow updating coordinates (for farm location pinning)
+            # Allow updating coordinates
             if 'latitude' in request.data:
                 try:
                     new_lat = float(request.data['latitude'])
@@ -641,17 +644,15 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             instance.save()
             
-            # ✅ NEW: Check for proximity alerts when detection is confirmed
+            # Check for proximity alerts when detection is confirmed
             if 'confirmed' in request.data and instance.confirmed and instance.active and instance.farm:
                 try:
                     created_alerts = check_and_create_proximity_alerts(instance)
                     if created_alerts:
                         print(f"✅ Created {len(created_alerts)} proximity alert(s) for detection {instance.id}")
                 except Exception as e:
-                    # Don't fail the update if alert creation fails
                     print(f"⚠️ Failed to create proximity alerts: {str(e)}")
             
-            # ✅ UPDATED: Include farm and severity in log message
             log_message = f'Detection ID: {instance.id}, Severity: {instance.severity}'
             if instance.farm:
                 log_message += f', Farm: {instance.farm.name}'
@@ -674,11 +675,10 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
     def heatmap_data(self, request):
         days = int(request.query_params.get('days', 30))
         since = timezone.now() - timedelta(days=days)
-        # All users see all active AND confirmed detections (collaborative monitoring)
         queryset = PestDetection.objects.all()
         queryset = queryset.filter(
             active=True, 
-            confirmed=True  # Only show user-confirmed detections
+            confirmed=True
         ).filter(Q(detected_at__gte=since) | Q(reported_at__gte=since))
         heatmap_points = [{
             'id': det.id,
@@ -742,7 +742,6 @@ class DetectionStatisticsAPIView(APIView):
         })
 
 # ==================== PEST INFO VIEWSET ====================
-# In api/views.py
 class PestInfoViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PestInfo.objects.filter(is_published=True)
     serializer_class = PestInfoSerializer
@@ -766,16 +765,13 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         now = timezone.now()
-        # Base: only active, non-expired alerts
         base_qs = Alert.objects.filter(
             Q(is_active=True, expires_at__gte=now) |
             Q(is_active=True, expires_at__isnull=True)
         )
 
-        # General/system-wide alerts: empty, null, OR broad geographic names (not a specific farm)
         general_q = Q(target_area='') | Q(target_area__isnull=True) | Q(target_area__icontains='Magalang')
 
-        # Farm-specific alerts - match user's farm names (case-insensitive contains)
         user_farms = Farm.objects.filter(user=self.request.user).values_list('name', flat=True)
         if user_farms:
             farm_q = Q()
@@ -784,7 +780,6 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
                 farm_q |= Q(target_area__icontains=farm_name)
             queryset = base_qs.filter(general_q | farm_q)
         else:
-            # Users with no farms still see general/system-wide alerts
             queryset = base_qs.filter(general_q)
 
         return queryset.order_by('-created_at')
@@ -799,7 +794,6 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
             Q(expires_at__gte=now) | Q(expires_at__isnull=True)
         )
 
-        # Always include general alerts (empty, null, or broad geographic names)
         general_q = Q(target_area='') | Q(target_area__isnull=True) | Q(target_area__icontains='Magalang')
 
         user_farms = Farm.objects.filter(user=request.user).values_list('name', flat=True)
@@ -822,7 +816,6 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(stats)
 
 
-
 # ==================== VERIFICATION REQUEST VIEWSET ====================
 class VerificationRequestViewSet(viewsets.ModelViewSet):
     """
@@ -839,19 +832,16 @@ class VerificationRequestViewSet(viewsets.ModelViewSet):
         return VerificationRequest.objects.filter(user=self.request.user)
 
     def create(self, request, *args, **kwargs):
-        # Prevent admins from submitting requests
         if request.user.role == 'admin':
             return Response(
                 {'error': 'Admins do not need to submit verification requests.'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        # Already verified
         if request.user.is_verified:
             return Response(
                 {'error': 'Your account is already verified.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        # Block if there is an existing pending request
         existing_pending = VerificationRequest.objects.filter(
             user=request.user, status='pending'
         ).exists()
@@ -904,8 +894,6 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
     queryset = VerificationRequest.objects.all()
     serializer_class = VerificationRequestSerializer
     permission_classes = [IsAdminOrMAOStaff]
-    # JSONParser must be first so approve/reject actions (which send JSON) are parsed correctly.
-    # MultiPartParser/FormParser are kept for any file-upload endpoints on this viewset.
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     @action(detail=True, methods=['post'])
@@ -919,10 +907,8 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Mark user as verified
         User.objects.filter(pk=vr.user.pk).update(is_verified=True)
 
-        # Use queryset.update() to avoid re-validating the ImageField on vr.save()
         VerificationRequest.objects.filter(pk=vr.pk).update(
             status='approved',
             reviewed_by=request.user,
@@ -961,7 +947,6 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
 
         review_notes = request.data.get('review_notes', 'Rejected')
 
-        # Use queryset.update() to avoid re-validating the ImageField on vr.save()
         VerificationRequest.objects.filter(pk=vr.pk).update(
             status='rejected',
             reviewed_by=request.user,
@@ -993,7 +978,6 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
 
 
 # ==================== ADMIN VIEWSETS ====================
-# [Keep all your existing admin viewsets - they're already correct]
 
 class AdminUserManagementViewSet(viewsets.ModelViewSet):
     """Admin can manage all users"""
@@ -1013,14 +997,12 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
         phone = data.get('phone', '').strip()
         role = data.get('role', 'mao_staff')
 
-        # Validate role — only mao_staff can be created this way
         if role not in ('mao_staff',):
             return Response(
                 {'error': 'Only mao_staff accounts can be created via this endpoint.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Basic validation
         errors = {}
         if not username:
             errors['username'] = 'Username is required.'
@@ -1048,7 +1030,7 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
             last_name=last_name,
             phone=phone,
             role='mao_staff',
-            is_verified=True,  # Staff accounts are pre-verified
+            is_verified=True,
         )
 
         log_activity(
@@ -1202,7 +1184,7 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
             'by_severity': by_severity
         })
         
-# ==================== ADMIN FARM REQUEST MANAGEMENT (NEW) ====================
+# ==================== ADMIN FARM REQUEST MANAGEMENT ====================
 class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
     """Admin and MAO staff can manage farm requests"""
     queryset = FarmRequest.objects.all()
