@@ -460,6 +460,9 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     tmp_file.write(chunk)
                 temp_path = tmp_file.name
 
+            # Reset file pointer so Django/Cloudinary can read the image again when saving
+            image.seek(0)
+
             print(f"Calling ML API with image: {temp_path}, crop: {crop_type}")
             
             # Call ML API with retry logic
