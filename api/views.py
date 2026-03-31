@@ -414,6 +414,8 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if farm_id:
                 farm = Farm.objects.filter(id=farm_id, user=request.user).first()
 
+            image.seek(0)
+
             detection = PestDetection.objects.create(
                 user=request.user,
                 farm=farm,
