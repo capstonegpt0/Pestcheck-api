@@ -98,7 +98,7 @@ class FarmRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = FarmRequest
         fields = [
-            'id', 'user', 'user_name', 'name', 'lat', 'lng', 'size', 'crop_type', 
+            'id', 'user', 'user_name', 'name', 'address', 'lat', 'lng', 'size', 'crop_type', 
             'description', 'status', 'reviewed_by', 'reviewed_by_name', 'review_notes', 
             'reviewed_at', 'approved_farm_id', 'created_at', 'updated_at'
         ]
@@ -115,7 +115,7 @@ class FarmSerializer(serializers.ModelSerializer):
     class Meta:
         model = Farm
         fields = [
-            'id', 'name', 'lat', 'lng', 'size', 'crop_type', 'is_verified', 
+            'id', 'name', 'address', 'lat', 'lng', 'size', 'crop_type', 'is_verified', 
             'user_name', 'created_by_name', 'created_at', 'updated_at', 'infestation_count'
         ]
         read_only_fields = ['id', 'is_verified', 'user_name', 'created_by_name', 'created_at', 'updated_at']

@@ -84,6 +84,7 @@ class FarmRequest(models.Model):
     
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='farm_requests')
     name = models.CharField(max_length=200)
+    address = models.CharField(max_length=500, blank=True, help_text='General address or location description of the farm')
     lat = models.FloatField(verbose_name='Latitude')
     lng = models.FloatField(verbose_name='Longitude')
     size = models.FloatField(null=True, blank=True, help_text='Size in hectares')
@@ -117,6 +118,7 @@ class Farm(models.Model):
     """Farm locations for users - Created only by admin approval"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='farms')
     name = models.CharField(max_length=200)
+    address = models.CharField(max_length=500, blank=True, help_text='General address or location description')
     lat = models.FloatField(verbose_name='Latitude')
     lng = models.FloatField(verbose_name='Longitude')
     size = models.FloatField(null=True, blank=True, help_text='Size in hectares')
