@@ -1103,8 +1103,16 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
 class AdminFarmManagementViewSet(viewsets.ModelViewSet):
     queryset = Farm.objects.all()
     serializer_class = FarmSerializer
-    permission_classes = [IsAdmin]
-    
+    permission_classes = [IsAdminOrMAOStaff]
+
+    def destroy(self, request, *args, **kwargs):
+        if request.user.role != 'admin':
+            return Response(
+                {'error': 'Only admins can delete farms.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=True, methods=['post'])
     def verify_farm(self, request, pk=None):
         farm = self.get_object()
@@ -1132,7 +1140,15 @@ class AdminFarmManagementViewSet(viewsets.ModelViewSet):
 class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
     queryset = PestDetection.objects.all()
     serializer_class = PestDetectionSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdminOrMAOStaff]
+
+    def destroy(self, request, *args, **kwargs):
+        if request.user.role != 'admin':
+            return Response(
+                {'error': 'Only admins can delete detections.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
     
     @action(detail=True, methods=['post'])
     def verify_detection(self, request, pk=None):
@@ -1290,7 +1306,15 @@ class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
 class AdminPestInfoManagementViewSet(viewsets.ModelViewSet):
     queryset = PestInfo.objects.all()
     serializer_class = PestInfoSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdminOrMAOStaff]
+
+    def destroy(self, request, *args, **kwargs):
+        if request.user.role != 'admin':
+            return Response(
+                {'error': 'Only admins can delete pest info.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
     
     def perform_create(self, serializer):
         pest_info = serializer.save(created_by=self.request.user)
