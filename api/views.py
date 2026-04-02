@@ -49,6 +49,16 @@ HUGGINGFACE_ML_URL = os.environ.get(
     'https://capstonegpt0-pestcheck-ml.hf.space'
 )
 
+# ==================== CUSTOM PAGINATION ====================
+from rest_framework.pagination import PageNumberPagination
+
+class DetectionPagination(PageNumberPagination):
+    """Allows frontend to control page size via ?page_size= query param."""
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 500
+
+
 # ==================== HELPER FUNCTIONS ====================
 def get_tokens_for_user(user):
     refresh = RefreshToken.for_user(user)
@@ -1122,9 +1132,28 @@ class AdminFarmManagementViewSet(viewsets.ModelViewSet):
         })
 
 class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
-    queryset = PestDetection.objects.all()
     serializer_class = PestDetectionSerializer
     permission_classes = [IsAdminOrMAOStaff]
+    pagination_class = DetectionPagination
+
+    def get_queryset(self):
+        queryset = PestDetection.objects.select_related('user', 'farm', 'verified_by').all()
+
+        # Filter by status
+        status_param = self.request.query_params.get('status')
+        if status_param and status_param != 'all':
+            queryset = queryset.filter(status=status_param)
+
+        # Search across pest name, username, farm name
+        search = self.request.query_params.get('search', '').strip()
+        if search:
+            queryset = queryset.filter(
+                Q(pest_name__icontains=search) |
+                Q(user__username__icontains=search) |
+                Q(farm__name__icontains=search)
+            )
+
+        return queryset.order_by('-detected_at')
 
     def destroy(self, request, *args, **kwargs):
         if request.user.role != 'admin':
