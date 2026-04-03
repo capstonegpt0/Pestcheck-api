@@ -1167,6 +1167,16 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = PestDetection.objects.select_related('user', 'farm', 'verified_by').all()
 
+        # Exclude unconfirmed detections (in-progress or cancelled by the farmer).
+        # Default behaviour: confirmed=True only.
+        # Pass ?confirmed=false to see only unconfirmed, or ?confirmed=all to bypass.
+        confirmed_param = self.request.query_params.get('confirmed', 'true')
+        if confirmed_param.lower() == 'true':
+            queryset = queryset.filter(confirmed=True)
+        elif confirmed_param.lower() == 'false':
+            queryset = queryset.filter(confirmed=False)
+        # 'all' or anything else → no confirmed filter applied
+
         # Filter by status
         status_param = self.request.query_params.get('status')
         if status_param and status_param != 'all':
