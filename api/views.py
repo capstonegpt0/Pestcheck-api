@@ -616,20 +616,24 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     }, status=400)
                 instance.severity = severity
             
-            # Handle confirmed field updates
+            # Handle confirmed field updates — coerce to proper bool.
+            # Axios JSON sends True/False natively, but guard against "true"/"false" strings
+            # (which can arrive when using FormData or certain serialization paths).
             if 'confirmed' in request.data:
-                instance.confirmed = request.data['confirmed']
-            
+                val = request.data['confirmed']
+                instance.confirmed = val if isinstance(val, bool) else str(val).lower() == 'true'
+
             if 'active' in request.data:
-                instance.active = request.data['active']
-            
+                val = request.data['active']
+                instance.active = val if isinstance(val, bool) else str(val).lower() == 'true'
+
             if 'status' in request.data:
                 instance.status = request.data['status']
-            
+
             # Allow updating description
             if 'description' in request.data:
                 instance.description = request.data['description']
-            
+
             # Allow updating coordinates
             if 'latitude' in request.data:
                 try:
@@ -645,12 +649,19 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     instance.longitude = new_lng
                 except (ValueError, TypeError) as e:
                     print(f"⚠️ Invalid longitude value: {request.data['longitude']} - {e}")
-            
+
             print(f"📋 Final coords before save: lat={instance.latitude}, lng={instance.longitude}")
-            
-            if not instance.active or instance.status == 'resolved':
+
+            # Only mark resolved when explicitly deactivated.
+            # The old `or instance.status == 'resolved'` branch was causing active detections
+            # to stay locked as resolved when re-saving, making them invisible on the heatmap.
+            if not instance.active:
                 instance.resolved_at = timezone.now()
                 instance.status = 'resolved'
+            elif instance.status == 'resolved' and instance.active:
+                # Detection re-activated (e.g. confirmed after being resolved) — restore status.
+                instance.status = 'verified'
+                instance.resolved_at = None
             
             instance.save()
             
@@ -685,25 +696,42 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
     def heatmap_data(self, request):
         days = int(request.query_params.get('days', 30))
         since = timezone.now() - timedelta(days=days)
-        queryset = PestDetection.objects.all()
-        queryset = queryset.filter(
-            active=True, 
-            confirmed=True
-        ).filter(Q(detected_at__gte=since) | Q(reported_at__gte=since))
-        heatmap_points = [{
-            'id': det.id,
-            'pest': det.pest_name or det.pest_type,
-            'severity': det.severity,
-            'lat': det.latitude,
-            'lng': det.longitude,
-            'farm_id': det.farm_id,
-            'user_id': det.user_id,
-            'user_name': det.user.username if det.user else None,
-            'user_is_verified': det.user.is_verified if det.user else False,
-            'reported_at': (det.reported_at or det.detected_at).isoformat(),
-            'active': det.active,
-            'status': det.status
-        } for det in queryset.select_related('user')]
+
+        # Filter active + confirmed detections that fall within the time window.
+        # Use detected_at as primary — reported_at is optional (can be null).
+        # The OR ensures detections with only detected_at set are NOT missed.
+        queryset = PestDetection.objects.filter(
+            active=True,
+            confirmed=True,
+        ).filter(
+            Q(detected_at__gte=since) | Q(reported_at__gte=since)
+        ).select_related('user')
+
+        heatmap_points = []
+        for det in queryset:
+            # Guard against invalid/missing coordinates
+            try:
+                lat = float(det.latitude)
+                lng = float(det.longitude)
+            except (TypeError, ValueError):
+                continue
+
+            heatmap_points.append({
+                'id': det.id,
+                'pest': det.pest_name or det.pest_type,
+                'severity': det.severity,
+                'lat': lat,
+                'lng': lng,
+                'farm_id': det.farm_id,
+                'user_id': det.user_id,
+                'user_name': det.user.username if det.user else None,
+                'user_is_verified': det.user.is_verified if det.user else False,
+                'reported_at': (det.reported_at or det.detected_at).isoformat(),
+                'detected_at': det.detected_at.isoformat() if det.detected_at else None,
+                'active': det.active,
+                'status': det.status,
+            })
+
         return Response(heatmap_points)
 
     @action(detail=False, methods=['get'])
