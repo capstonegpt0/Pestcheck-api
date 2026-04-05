@@ -1205,19 +1205,62 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
     def verify_detection(self, request, pk=None):
         detection = self.get_object()
         detection.status = 'verified'
+        detection.active = True        # ensure it appears on the heatmap
+        detection.confirmed = True     # ensure it appears on the heatmap
         detection.verified_by = request.user
         detection.admin_notes = request.data.get('notes', '')
         detection.save()
+ 
+        # Notify the farmer
+        notes = detection.admin_notes
+        message = (
+            f'Your detection report #{detection.id} ({detection.pest_name}) '
+            f'has been verified by MAO staff.'
+        )
+        if notes:
+            message += f' Notes: {notes}'
+ 
+        create_notification(
+            detection.user,
+            'detection_verified',
+            'Detection Report Verified',
+            message,
+            related_id=detection.id
+        )
+ 
         log_activity(request.user, 'verified_detection', f'Detection ID: {detection.id}', request)
         return Response({'message': 'Detection verified successfully'})
-    
+ 
     @action(detail=True, methods=['post'])
     def reject_detection(self, request, pk=None):
         detection = self.get_object()
+ 
+        notes = request.data.get('notes', '').strip()
+        if not notes:
+            return Response(
+                {'error': 'A reason for rejection is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+ 
         detection.status = 'rejected'
+        detection.active = False       # removes it from the heatmap immediately
+        detection.confirmed = False    # consistent with unvalidated state
         detection.verified_by = request.user
-        detection.admin_notes = request.data.get('notes', '')
+        detection.admin_notes = notes
         detection.save()
+ 
+        # Notify the farmer with the admin's reason
+        create_notification(
+            detection.user,
+            'detection_rejected',
+            'Detection Report Rejected',
+            (
+                f'Your detection report #{detection.id} ({detection.pest_name}) '
+                f'was rejected. Reason: {notes}'
+            ),
+            related_id=detection.id
+        )
+ 
         log_activity(request.user, 'rejected_detection', f'Detection ID: {detection.id}', request)
         return Response({'message': 'Detection rejected'})
     
