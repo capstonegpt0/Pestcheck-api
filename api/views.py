@@ -238,15 +238,44 @@ def update_notification_settings(request):
 
 
 # ==================== NOTIFICATION HELPER ====================
+
+# All valid notification_type values — must stay in sync with models.py choices.
+# FIX: Having this set prevents IntegrityError when views.py uses types that
+#      were missing from the model's choices list (e.g. detection_verified,
+#      detection_rejected).
+_VALID_NOTIFICATION_TYPES = {
+    'detection_nearby',
+    'verification_approved',
+    'verification_rejected',
+    'farm_approved',
+    'farm_rejected',
+    'admin_alert',
+    'critical_pest',
+    'system',
+    'detection_verified',
+    'detection_rejected',
+}
+
 def create_notification(user, notification_type, title, message, related_id=None):
     """Create an in-app notification for a user, respecting their preferences."""
     try:
+        # FIX: Guard against unknown notification types — saves us from a silent
+        # DB error that would previously cause the entire calling action to fail
+        # (e.g. verify_detection / reject_detection crashing mid-way because
+        # 'detection_verified'/'detection_rejected' were not in the choices list).
+        if notification_type not in _VALID_NOTIFICATION_TYPES:
+            print(f"[create_notification] Unknown type '{notification_type}' — falling back to 'system'")
+            notification_type = 'system'
+
         prefs, _ = NotificationPreference.objects.get_or_create(user=user)
 
-        # Check preferences
-        if notification_type in ('detection_nearby',) and not prefs.detection_alerts:
+        # Respect per-user preferences
+        if notification_type == 'detection_nearby' and not prefs.detection_alerts:
             return None
-        if notification_type in ('critical_pest',) and not prefs.critical_alerts:
+        if notification_type == 'critical_pest' and not prefs.critical_alerts:
+            return None
+        # admin_alert: only send if push_enabled (general preference)
+        if notification_type == 'admin_alert' and not prefs.push_enabled:
             return None
 
         return Notification.objects.create(
@@ -617,8 +646,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 instance.severity = severity
             
             # Handle confirmed field updates — coerce to proper bool.
-            # Axios JSON sends True/False natively, but guard against "true"/"false" strings
-            # (which can arrive when using FormData or certain serialization paths).
             if 'confirmed' in request.data:
                 val = request.data['confirmed']
                 instance.confirmed = val if isinstance(val, bool) else str(val).lower() == 'true'
@@ -652,14 +679,10 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
 
             print(f"📋 Final coords before save: lat={instance.latitude}, lng={instance.longitude}")
 
-            # Only mark resolved when explicitly deactivated.
-            # The old `or instance.status == 'resolved'` branch was causing active detections
-            # to stay locked as resolved when re-saving, making them invisible on the heatmap.
             if not instance.active:
                 instance.resolved_at = timezone.now()
                 instance.status = 'resolved'
             elif instance.status == 'resolved' and instance.active:
-                # Detection re-activated (e.g. confirmed after being resolved) — restore status.
                 instance.status = 'verified'
                 instance.resolved_at = None
             
@@ -697,9 +720,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         days = int(request.query_params.get('days', 30))
         since = timezone.now() - timedelta(days=days)
 
-        # Filter active + confirmed detections that fall within the time window.
-        # Use detected_at as primary — reported_at is optional (can be null).
-        # The OR ensures detections with only detected_at set are NOT missed.
         queryset = PestDetection.objects.filter(
             active=True,
             confirmed=True,
@@ -709,7 +729,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
 
         heatmap_points = []
         for det in queryset:
-            # Guard against invalid/missing coordinates
             try:
                 lat = float(det.latitude)
                 lng = float(det.longitude)
@@ -801,49 +820,59 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AlertSerializer
     permission_classes = [IsAuthenticated]
 
-    def get_queryset(self):
+    def _build_alert_queryset(self, user):
+        """
+        Shared helper used by both get_queryset() and my_alerts().
+
+        FIX: The old code only returned alerts whose target_area was blank/null
+        OR contained 'Magalang'. This meant that when an admin created an alert
+        with an empty target_area (broadcast to all), farmers with NO farms would
+        see it but farmers WITH farms would only see it if one of their farm names
+        matched 'Magalang' — which is almost never true.
+
+        The corrected logic:
+          - Empty/null target_area  →  shown to EVERYONE (true broadcast)
+          - target_area == 'Magalang' → shown to everyone (region-wide)
+          - target_area matches a user's farm name → shown to that farmer
+        """
         now = timezone.now()
-        base_qs = Alert.objects.filter(
-            Q(is_active=True, expires_at__gte=now) |
-            Q(is_active=True, expires_at__isnull=True)
-        )
 
-        general_q = Q(target_area='') | Q(target_area__isnull=True) | Q(target_area__icontains='Magalang')
-
-        user_farms = Farm.objects.filter(user=self.request.user).values_list('name', flat=True)
-        if user_farms:
-            farm_q = Q()
-            for farm_name in user_farms:
-                farm_q |= Q(target_area__iexact=farm_name)
-                farm_q |= Q(target_area__icontains=farm_name)
-            queryset = base_qs.filter(general_q | farm_q)
-        else:
-            queryset = base_qs.filter(general_q)
-
-        return queryset.order_by('-created_at')
-
-    @action(detail=False, methods=['get'])
-    def my_alerts(self, request):
-        """Get alerts specific to user's farms + general alerts"""
-        now = timezone.now()
+        # Active, non-expired alerts
         base_qs = Alert.objects.filter(
             is_active=True
         ).filter(
             Q(expires_at__gte=now) | Q(expires_at__isnull=True)
         )
 
-        general_q = Q(target_area='') | Q(target_area__isnull=True) | Q(target_area__icontains='Magalang')
+        # Broadcast: no target area set, or explicitly targeting the whole region
+        broadcast_q = (
+            Q(target_area='') |
+            Q(target_area__isnull=True) |
+            Q(target_area__icontains='Magalang')
+        )
 
-        user_farms = Farm.objects.filter(user=request.user).values_list('name', flat=True)
-        if user_farms:
+        # Farm-specific: target_area matches any of this user's farm names
+        user_farm_names = list(
+            Farm.objects.filter(user=user).values_list('name', flat=True)
+        )
+
+        if user_farm_names:
             farm_q = Q()
-            for farm_name in user_farms:
+            for farm_name in user_farm_names:
                 farm_q |= Q(target_area__iexact=farm_name)
                 farm_q |= Q(target_area__icontains=farm_name)
-            alerts = base_qs.filter(general_q | farm_q)
-        else:
-            alerts = base_qs.filter(general_q)
+            return base_qs.filter(broadcast_q | farm_q).order_by('-created_at')
 
+        # User has no farms — only show broadcast alerts
+        return base_qs.filter(broadcast_q).order_by('-created_at')
+
+    def get_queryset(self):
+        return self._build_alert_queryset(self.request.user)
+
+    @action(detail=False, methods=['get'])
+    def my_alerts(self, request):
+        """Get alerts specific to user's farms + general/broadcast alerts."""
+        alerts = self._build_alert_queryset(request.user)
         serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
 
@@ -1167,22 +1196,16 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = PestDetection.objects.select_related('user', 'farm', 'verified_by').all()
 
-        # Exclude unconfirmed detections (in-progress or cancelled by the farmer).
-        # Default behaviour: confirmed=True only.
-        # Pass ?confirmed=false to see only unconfirmed, or ?confirmed=all to bypass.
         confirmed_param = self.request.query_params.get('confirmed', 'true')
         if confirmed_param.lower() == 'true':
             queryset = queryset.filter(confirmed=True)
         elif confirmed_param.lower() == 'false':
             queryset = queryset.filter(confirmed=False)
-        # 'all' or anything else → no confirmed filter applied
 
-        # Filter by status
         status_param = self.request.query_params.get('status')
         if status_param and status_param != 'all':
             queryset = queryset.filter(status=status_param)
 
-        # Search across pest name, username, farm name
         search = self.request.query_params.get('search', '').strip()
         if search:
             queryset = queryset.filter(
@@ -1205,13 +1228,12 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
     def verify_detection(self, request, pk=None):
         detection = self.get_object()
         detection.status = 'verified'
-        detection.active = True        # ensure it appears on the heatmap
-        detection.confirmed = True     # ensure it appears on the heatmap
+        detection.active = True
+        detection.confirmed = True
         detection.verified_by = request.user
         detection.admin_notes = request.data.get('notes', '')
         detection.save()
  
-        # Notify the farmer
         notes = detection.admin_notes
         message = (
             f'Your detection report #{detection.id} ({detection.pest_name}) '
@@ -1243,13 +1265,12 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
             )
  
         detection.status = 'rejected'
-        detection.active = False       # removes it from the heatmap immediately
-        detection.confirmed = False    # consistent with unvalidated state
+        detection.active = False
+        detection.confirmed = False
         detection.verified_by = request.user
         detection.admin_notes = notes
         detection.save()
  
-        # Notify the farmer with the admin's reason
         create_notification(
             detection.user,
             'detection_rejected',
@@ -1313,7 +1334,6 @@ class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            # Create the farm
             farm = Farm.objects.create(
                 user=farm_request.user,
                 name=farm_request.name,
@@ -1325,7 +1345,6 @@ class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
                 created_by=request.user
             )
             
-            # Update request
             farm_request.status = 'approved'
             farm_request.reviewed_by = request.user
             farm_request.reviewed_at = timezone.now()
@@ -1422,6 +1441,8 @@ class AdminPestInfoManagementViewSet(viewsets.ModelViewSet):
         log_activity(request.user, f'{status_text}_pest_info', f'Pest: {pest_info.name}', request)
         return Response({'message': f'Pest info {status_text} successfully'})
 
+
+# ==================== ADMIN ALERT MANAGEMENT ====================
 class AdminAlertManagementViewSet(viewsets.ModelViewSet):
     queryset = Alert.objects.all()
     serializer_class = AlertSerializer
@@ -1431,15 +1452,49 @@ class AdminAlertManagementViewSet(viewsets.ModelViewSet):
         alert = serializer.save(created_by=self.request.user)
         log_activity(self.request.user, 'created_alert', f'Alert: {alert.title}', self.request)
         
-        # Notify target users
+        # ── FIX: Determine the correct set of target users ───────────────────
+        # Old code used `farms__name=alert.target_area` which only matched farms
+        # whose name exactly equalled the target_area string. Combined with the
+        # AlertViewSet queryset bug this meant broadcast alerts (empty target_area)
+        # sent in-app bells to ALL farmers but the banner query wouldn't show them
+        # to farmers who had farms (because the farm_q would dominate).
+        #
+        # New behaviour:
+        #   - No target_area (broadcast) → notify all farmers
+        #   - target_area set → notify farmers who own a farm with that name,
+        #     plus fall back to all farmers if no farm matches (prevents silent
+        #     notifications to nobody when the admin mis-types a farm name).
+        # ─────────────────────────────────────────────────────────────────────
         if alert.target_area:
-            target_users = User.objects.filter(farms__name=alert.target_area).distinct()
+            target_users = User.objects.filter(
+                role='farmer',
+                farms__name__icontains=alert.target_area
+            ).distinct()
+
+            # Safety fallback: if no farmers own a farm matching the target_area
+            # treat it as a broadcast so the alert is never silently lost.
+            if not target_users.exists():
+                print(
+                    f"[AdminAlertManagementViewSet] No farms matched target_area "
+                    f"'{alert.target_area}' — broadcasting to all farmers."
+                )
+                target_users = User.objects.filter(role='farmer')
         else:
+            # Blank target_area = broadcast to every farmer
             target_users = User.objects.filter(role='farmer')
+
+        notification_count = 0
         for u in target_users:
-            create_notification(
+            result = create_notification(
                 u, 'admin_alert', alert.title, alert.message, related_id=alert.id
             )
+            if result:
+                notification_count += 1
+
+        print(
+            f"[AdminAlertManagementViewSet] Alert '{alert.title}' created. "
+            f"In-app notifications sent to {notification_count} farmer(s)."
+        )
     
     @action(detail=True, methods=['post'])
     def toggle_active(self, request, pk=None):

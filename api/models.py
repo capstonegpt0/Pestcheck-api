@@ -291,6 +291,9 @@ class Notification(models.Model):
         ('admin_alert', 'Admin Alert'),
         ('critical_pest', 'Critical Pest Alert'),
         ('system', 'System Notification'),
+        # ── ADDED: used by AdminDetectionManagementViewSet ──────────────────
+        ('detection_verified', 'Detection Verified'),
+        ('detection_rejected', 'Detection Rejected'),
     ]
     
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
