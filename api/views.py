@@ -133,18 +133,70 @@ def call_ml_api(image_path, crop_type='rice', max_retries=3):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register_view(request):
+    """
+    Farmer self-registration.
+    Account starts inactive (is_active=False, is_verified=False) and requires
+    admin/MAO staff approval before the farmer can log in.
+    RSBSA number and valid ID image are required at registration time.
+    """
     serializer = RegisterSerializer(data=request.data)
-    if serializer.is_valid():
-        user = serializer.save()
-        tokens = get_tokens_for_user(user)
-        log_activity(user, 'user_registered', request=request)
-        return Response({'user': UserSerializer(user).data, 'tokens': tokens}, status=201)
-    return Response(serializer.errors, status=400)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=400)
+
+    # Create account as inactive — admin must approve before login is possible
+    user = serializer.save(is_active=False, is_verified=False)
+
+    # Persist the RSBSA + ID as a VerificationRequest so admin can review
+    rsbsa_number = request.data.get('rsbsa_number', '').strip()
+    valid_id_image = request.FILES.get('valid_id_image')
+
+    if rsbsa_number and valid_id_image:
+        VerificationRequest.objects.create(
+            user=user,
+            rsbsa_number=rsbsa_number,
+            valid_id_image=valid_id_image,
+            notes=request.data.get('notes', '').strip(),
+            status='pending',
+        )
+
+    log_activity(user, 'user_registered', f'Pending approval. RSBSA: {rsbsa_number}', request)
+
+    return Response(
+        {
+            'message': (
+                'Registration submitted successfully. Your account is pending admin approval. '
+                'You will be able to log in once your RSBSA number and ID have been verified.'
+            )
+        },
+        status=201,
+    )
 
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_view(request):
+    """
+    Login. Returns a clear message if the account is still pending approval.
+    """
+    username = request.data.get('username', '').strip()
+    password = request.data.get('password', '')
+
+    # Check for pending (inactive) accounts first so we can return a helpful message
+    try:
+        pending_user = User.objects.get(username=username)
+        if not pending_user.is_active:
+            return Response(
+                {
+                    'detail': (
+                        'Your account is pending admin approval. '
+                        'Please wait for an administrator to review your registration.'
+                    )
+                },
+                status=403,
+            )
+    except User.DoesNotExist:
+        pass  # Fall through to normal auth so error messages stay consistent
+
     serializer = LoginSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.validated_data
@@ -969,7 +1021,7 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
-        """Approve verification request and mark user as verified"""
+        """Approve registration — activate the account and mark user as verified."""
         vr = self.get_object()
 
         if vr.status != 'pending':
@@ -978,7 +1030,8 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        User.objects.filter(pk=vr.user.pk).update(is_verified=True)
+        # Activate account + mark verified in one query
+        User.objects.filter(pk=vr.user.pk).update(is_active=True, is_verified=True)
 
         VerificationRequest.objects.filter(pk=vr.pk).update(
             status='approved',
@@ -990,18 +1043,18 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
         log_activity(
             request.user,
             'verification_approved',
-            f'Verified user: {vr.user.username}',
+            f'Approved registration for: {vr.user.username}',
             request
         )
 
         create_notification(
-            vr.user, 'verification_approved', 'Account Verified',
-            'Your account has been verified! You now have full access to farm registration and pest monitoring features.',
+            vr.user, 'verification_approved', 'Registration Approved',
+            'Your registration has been approved! You can now log in and use PestCheck.',
             related_id=vr.id
         )
 
         return Response({
-            'message': f'User {vr.user.username} has been verified successfully.',
+            'message': f'Account for {vr.user.username} has been approved and activated.',
             'user_id': vr.user.id
         })
 
@@ -1033,8 +1086,8 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
         )
 
         create_notification(
-            vr.user, 'verification_rejected', 'Verification Request Rejected',
-            f'Your verification request was rejected. Reason: {review_notes}. You may resubmit with corrected information.',
+            vr.user, 'verification_rejected', 'Registration Rejected',
+            f'Your registration was rejected. Reason: {review_notes}. Please register again with the correct RSBSA number and valid ID.',
             related_id=vr.id
         )
 

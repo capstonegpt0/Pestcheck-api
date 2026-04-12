@@ -25,9 +25,20 @@ class RegisterSerializer(serializers.ModelSerializer):
     password_confirm = serializers.CharField(write_only=True)
     role = serializers.ChoiceField(choices=['farmer'], default='farmer')
 
+    # These are handled separately in register_view (saved as VerificationRequest).
+    # Declared here only so DRF does not reject them as unknown fields when the
+    # view passes request.data directly to the serializer.
+    rsbsa_number = serializers.CharField(write_only=True, required=True)
+    valid_id_image = serializers.ImageField(write_only=True, required=True)
+    notes = serializers.CharField(write_only=True, required=False, allow_blank=True, default='')
+
     class Meta:
         model = User
-        fields = ['username', 'email', 'password', 'password_confirm', 'first_name', 'last_name', 'phone', 'role']
+        fields = [
+            'username', 'email', 'password', 'password_confirm',
+            'first_name', 'last_name', 'phone', 'role',
+            'rsbsa_number', 'valid_id_image', 'notes',
+        ]
 
     def validate(self, data):
         if data['password'] != data['password_confirm']:
@@ -35,7 +46,11 @@ class RegisterSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
+        # Strip fields that belong to VerificationRequest, not User
         validated_data.pop('password_confirm')
+        validated_data.pop('rsbsa_number', None)
+        validated_data.pop('valid_id_image', None)
+        validated_data.pop('notes', None)
         user = User.objects.create_user(**validated_data)
         return user
 
@@ -44,10 +59,16 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
     def validate(self, data):
-        user = authenticate(**data)
-        if user and user.is_active:
-            return user
-        raise serializers.ValidationError("Invalid credentials")
+        from django.contrib.auth import authenticate as django_authenticate
+        user = django_authenticate(username=data['username'], password=data['password'])
+        if user is None:
+            raise serializers.ValidationError("Invalid username or password.")
+        if not user.is_active:
+            raise serializers.ValidationError(
+                "Your account is pending admin approval. "
+                "Please wait for an administrator to review your registration."
+            )
+        return user
 
 
 # ==================== VERIFICATION REQUEST SERIALIZER ====================
