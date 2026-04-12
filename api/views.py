@@ -580,7 +580,11 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 'symptoms': analysis.get('symptoms', ''),
                 'control_methods': analysis.get('control_methods', []),
                 'prevention': analysis.get('prevention', []),
-                'num_detections': analysis.get('num_detections', 1)
+                'num_detections': analysis.get('num_detections', 1),
+                'bounding_boxes': analysis.get('bounding_boxes', []),
+                'image_width': analysis.get('image_width', None),
+                'image_height': analysis.get('image_height', None),
+                'model_used': analysis.get('model_used', ''),
             })
             
             print(f"✅ Returning successful detection response")
