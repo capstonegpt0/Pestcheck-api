@@ -1,17 +1,6 @@
 from django.db import migrations, models
 
 
-MAGALANG_BARANGAYS = [
-    'Ayala', 'Bucanan', 'Camias', 'Dolores', 'Escaler', 'La Paz',
-    'Navaling', 'San Agustin', 'San Antonio', 'San Francisco',
-    'San Ildefonso', 'San Isidro', 'San Jose', 'San Miguel',
-    'San Nicolas 1st (Poblacion)', 'San Nicolas 2nd',
-    'San Pablo (Poblacion)', 'San Pedro I', 'San Pedro II',
-    'San Roque', 'San Vicente', 'Santa Cruz (Poblacion)',
-    'Santa Lucia', 'Santa Maria', 'Santo Niño', 'Santo Rosario', 'Turu',
-]
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -19,7 +8,16 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Add barangay to FarmRequest (user-submitted requests)
+        # ── FarmRequest ────────────────────────────────────────────────────────
+        migrations.AddField(
+            model_name='farmrequest',
+            name='address',
+            field=models.CharField(
+                blank=True,
+                max_length=500,
+                help_text='General address or location description of the farm',
+            ),
+        ),
         migrations.AddField(
             model_name='farmrequest',
             name='barangay',
@@ -29,7 +27,16 @@ class Migration(migrations.Migration):
                 help_text='Barangay in Magalang, Pampanga where the farm is located',
             ),
         ),
-        # Add barangay to Farm (approved farms created by admin)
+        # ── Farm ───────────────────────────────────────────────────────────────
+        migrations.AddField(
+            model_name='farm',
+            name='address',
+            field=models.CharField(
+                blank=True,
+                max_length=500,
+                help_text='General address or location description',
+            ),
+        ),
         migrations.AddField(
             model_name='farm',
             name='barangay',
