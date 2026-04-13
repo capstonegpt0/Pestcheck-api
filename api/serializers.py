@@ -11,7 +11,6 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from .models import PestDetection, Farm
-from .serializers import PestDetectionSerializer
 from rest_framework import viewsets, status, generics, permissions
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
