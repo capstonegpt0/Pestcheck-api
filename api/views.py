@@ -25,7 +25,7 @@ from .serializers import (
     InfestationReportSerializer, AlertSerializer, UserActivitySerializer,
     NotificationPreferenceSerializer, NotificationSerializer
 )
-from .permissions import IsAdmin, IsAdminOrMAOStaff, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin, IsNotBlocked
+from .permissions import IsAdmin, IsAdminOrMAOStaff, IsAdminOrReadOnly, IsFarmerOrAdmin, IsOwnerOrAdmin
 from .utils import get_crop_from_pest
 
 # Import proximity alert utilities
@@ -181,19 +181,9 @@ def login_view(request):
     username = request.data.get('username', '').strip()
     password = request.data.get('password', '')
 
-    # Check for blocked / pending accounts before normal auth
+    # Check for pending (inactive) accounts first so we can return a helpful message
     try:
         pending_user = User.objects.get(username=username)
-        if getattr(pending_user, 'is_blocked', False):
-            return Response(
-                {
-                    'detail': (
-                        'Your account has been blocked due to repeated invalid detection reports. '
-                        'Please contact the MAO office for assistance.'
-                    )
-                },
-                status=403,
-            )
         if not pending_user.is_active:
             return Response(
                 {
@@ -476,7 +466,7 @@ class FarmViewSet(viewsets.ReadOnlyModelViewSet):
 class PestDetectionViewSet(viewsets.ModelViewSet):
     queryset = PestDetection.objects.all()
     serializer_class = PestDetectionSerializer
-    permission_classes = [permissions.IsAuthenticated, IsNotBlocked]
+    permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -503,11 +493,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
 
     def create_manual_detection(self, request):
         """Handles manual detection (without image)"""
-        if getattr(request.user, 'is_blocked', False):
-            return Response(
-                {'error': 'Your account has been blocked. You cannot submit detection reports.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
         try:
             lat = float(request.data.get('latitude', 0))
             lng = float(request.data.get('longitude', 0))
@@ -543,11 +528,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
 
     def create(self, request):
         """Handles detection via ML API or manual fallback"""
-        if getattr(request.user, 'is_blocked', False):
-            return Response(
-                {'error': 'Your account has been blocked. You cannot submit detection reports.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
         if 'image' not in request.FILES:
             return self.create_manual_detection(request)
 
@@ -1218,6 +1198,7 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
         admins = User.objects.filter(role='admin').count()
         mao_staff = User.objects.filter(role='mao_staff').count()
         verified = User.objects.filter(is_verified=True).count()
+        blocked = User.objects.filter(is_blocked=True).count()
         
         return Response({
             'total_users': total_users,
@@ -1225,8 +1206,71 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
             'admins': admins,
             'mao_staff': mao_staff,
             'verified_users': verified,
-            'unverified_users': total_users - verified
+            'unverified_users': total_users - verified,
+            'blocked_users': blocked,
         })
+
+    @action(detail=True, methods=['post'])
+    def block_user(self, request, pk=None):
+        """Block a farmer account due to repeated rejected detections."""
+        user = self.get_object()
+        if user.role not in ('farmer',):
+            return Response(
+                {'error': 'Only farmer accounts can be blocked.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if user == request.user:
+            return Response(
+                {'error': 'You cannot block your own account.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        reason = request.data.get('reason', '').strip()
+        user.is_blocked = True
+        user.is_active = False  # prevent login
+        user.save(update_fields=['is_blocked', 'is_active'])
+        log_activity(
+            request.user,
+            'blocked_user',
+            f'Blocked farmer: {user.username} | Reason: {reason} | Rejected reports: {user.rejected_detection_count}',
+            request
+        )
+        create_notification(
+            user,
+            'system',
+            'Account Blocked',
+            f'Your account has been blocked by an administrator. Reason: {reason or "Repeated invalid detection reports."}',
+        )
+        return Response({
+            'message': f'Account {user.username} has been blocked.',
+            'rejected_detection_count': user.rejected_detection_count,
+        })
+
+    @action(detail=True, methods=['post'])
+    def unblock_user(self, request, pk=None):
+        """Unblock a previously blocked farmer account."""
+        user = self.get_object()
+        if not user.is_blocked:
+            return Response({'error': 'This account is not blocked.'}, status=status.HTTP_400_BAD_REQUEST)
+        user.is_blocked = False
+        user.is_active = True
+        # Optionally reset the rejected count on unblock
+        reset_count = request.data.get('reset_count', False)
+        if reset_count:
+            user.rejected_detection_count = 0
+        user.save(update_fields=['is_blocked', 'is_active', 'rejected_detection_count'])
+        log_activity(
+            request.user,
+            'unblocked_user',
+            f'Unblocked farmer: {user.username}',
+            request
+        )
+        create_notification(
+            user,
+            'system',
+            'Account Unblocked',
+            'Your account has been reinstated. You can now log in again.',
+        )
+        return Response({'message': f'Account {user.username} has been unblocked.'})
 
 class AdminFarmManagementViewSet(viewsets.ModelViewSet):
     queryset = Farm.objects.all()
@@ -1347,7 +1391,15 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
         detection.verified_by = request.user
         detection.admin_notes = notes
         detection.save()
- 
+
+        # Increment the farmer's rejected detection counter
+        from django.db import models as db_models
+        User.objects.filter(pk=detection.user.pk).update(
+            rejected_detection_count=db_models.F('rejected_detection_count') + 1
+        )
+        detection.user.refresh_from_db()
+        rejected_count = detection.user.rejected_detection_count
+
         create_notification(
             detection.user,
             'detection_rejected',
@@ -1358,9 +1410,17 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
             ),
             related_id=detection.id
         )
- 
-        log_activity(request.user, 'rejected_detection', f'Detection ID: {detection.id}', request)
-        return Response({'message': 'Detection rejected'})
+
+        log_activity(
+            request.user,
+            'rejected_detection',
+            f'Detection ID: {detection.id} | Farmer: {detection.user.username} | Total rejections: {rejected_count}',
+            request
+        )
+        return Response({
+            'message': 'Detection rejected',
+            'farmer_rejected_count': rejected_count,
+        })
     
     @action(detail=False, methods=['get'])
     def pending_verifications(self, request):
