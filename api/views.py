@@ -181,8 +181,21 @@ def login_view(request):
     username = request.data.get('username', '').strip()
     password = request.data.get('password', '')
 
-    # Check for pending (inactive) accounts first so we can return a helpful message
+# Check for blocked / pending accounts before normal auth
     try:
+        pending_user = User.objects.get(username=username)
+        if getattr(pending_user, 'is_blocked', False):
+            return Response(
+                {
+                    'detail': (
+                        'Your account has been blocked due to repeated invalid detection reports. '
+                        'Please contact the MAO office for assistance.'
+                    )
+                },
+                status=403,
+            )
+    # Check for pending (inactive) accounts first so we can return a helpful message
+   
         pending_user = User.objects.get(username=username)
         if not pending_user.is_active:
             return Response(
