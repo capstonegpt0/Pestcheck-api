@@ -47,3 +47,19 @@ class IsOwnerOrAdmin(permissions.BasePermission):
         if request.user.role == 'admin':
             return True
         return obj.user == request.user
+
+
+class IsNotBlocked(permissions.BasePermission):
+    """
+    Denies access if the authenticated user's account has been blocked by an admin.
+    Attach this alongside IsAuthenticated on any view a blocked farmer must not use.
+    """
+    message = (
+        'Your account has been blocked due to repeated invalid detection reports. '
+        'Please contact the MAO office for assistance.'
+    )
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return True  # let IsAuthenticated handle unauthenticated users
+        return not getattr(request.user, 'is_blocked', False)
