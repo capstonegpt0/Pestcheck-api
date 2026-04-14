@@ -176,39 +176,46 @@ def register_view(request):
 @permission_classes([AllowAny])
 def login_view(request):
     """
-    Login. Returns a clear message if the account is still pending approval.
+    Login endpoint.
+    Returns distinct 403 responses for:
+      - blocked accounts  (code: 'account_blocked')
+      - pending/inactive accounts (code: 'account_pending')
+    Returns 400 for invalid credentials.
     """
     username = request.data.get('username', '').strip()
-    password = request.data.get('password', '')
 
-# Check for blocked / pending accounts before normal auth
+    # Pre-auth checks: blocked and pending accounts
     try:
-        pending_user = User.objects.get(username=username)
-        if getattr(pending_user, 'is_blocked', False):
+        lookup_user = User.objects.get(username=username)
+
+        if getattr(lookup_user, 'is_blocked', False):
+            log_activity(lookup_user, 'login_blocked', 'Blocked account login attempt', request)
             return Response(
                 {
+                    'code': 'account_blocked',
                     'detail': (
                         'Your account has been blocked due to repeated invalid detection reports. '
                         'Please contact the MAO office for assistance.'
-                    )
+                    ),
                 },
                 status=403,
             )
-    # Check for pending (inactive) accounts first so we can return a helpful message
-   
-        pending_user = User.objects.get(username=username)
-        if not pending_user.is_active:
+
+        if not lookup_user.is_active:
+            log_activity(lookup_user, 'login_pending', 'Pending account login attempt', request)
             return Response(
                 {
+                    'code': 'account_pending',
                     'detail': (
-                        'Your account is pending admin approval. '
-                        'Please wait for an administrator to review your registration.'
-                    )
+                        'Your account is pending approval by the Magalang Agricultural Office. '
+                        'You will be notified once your RSBSA number and ID have been verified.'
+                    ),
                 },
                 status=403,
             )
+
     except User.DoesNotExist:
-        pass  # Fall through to normal auth so error messages stay consistent
+        pass  # Fall through — let LoginSerializer return the standard invalid-credentials error
 
     serializer = LoginSerializer(data=request.data)
     if serializer.is_valid():
