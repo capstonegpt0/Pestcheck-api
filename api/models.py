@@ -13,6 +13,8 @@ class User(AbstractUser):
     phone = models.CharField(max_length=15, blank=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='farmer')
     is_verified = models.BooleanField(default=False)
+    is_blocked = models.BooleanField(default=False, help_text='Account blocked by admin due to repeated rejected detections')
+    rejected_detection_count = models.PositiveIntegerField(default=0, help_text='Number of detection reports rejected by staff')
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
