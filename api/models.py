@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
+from django.core.validators import FileExtensionValidator
 
 # Custom User model
 class User(AbstractUser):
@@ -46,8 +47,21 @@ class VerificationRequest(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='verification_requests')
 
     # Required documents
-    rsbsa_number = models.CharField(max_length=100, help_text='RSBSA Registration Number')
-    valid_id_image = models.ImageField(upload_to='verification_ids/', help_text='Valid government-issued ID')
+    # unique=True ensures no two users can register with the same RSBSA number
+    rsbsa_number = models.CharField(max_length=100, unique=True, help_text='RSBSA Registration Number')
+
+    # FileExtensionValidator blocks non-image extensions at the API level.
+    # ImageField itself also uses Pillow to verify the file is a real image,
+    # providing two layers of protection against non-image uploads.
+    valid_id_image = models.ImageField(
+        upload_to='verification_ids/',
+        help_text='Valid government-issued ID',
+        validators=[
+            FileExtensionValidator(
+                allowed_extensions=['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff']
+            )
+        ]
+    )
 
     # Optional additional info
     notes = models.TextField(blank=True, help_text='Additional notes from the user')

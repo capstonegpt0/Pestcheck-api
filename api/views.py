@@ -139,6 +139,22 @@ def register_view(request):
     admin/MAO staff approval before the farmer can log in.
     RSBSA number and valid ID image are required at registration time.
     """
+    # ── Pre-check RSBSA uniqueness BEFORE creating the User ──────────────────
+    # This prevents orphaned inactive User records when the RSBSA is a duplicate.
+    # The DB unique constraint on VerificationRequest.rsbsa_number is the source
+    # of truth, but checking here gives a clean, user-friendly error at the right
+    # step rather than a 500 after the user has already been persisted.
+    rsbsa_number = request.data.get('rsbsa_number', '').strip()
+    if not rsbsa_number:
+        return Response({'rsbsa_number': ['RSBSA number is required.']}, status=400)
+
+    if VerificationRequest.objects.filter(rsbsa_number=rsbsa_number).exists():
+        return Response(
+            {'rsbsa_number': ['An account with this RSBSA number already exists.']},
+            status=400
+        )
+    # ─────────────────────────────────────────────────────────────────────────
+
     serializer = RegisterSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
@@ -147,7 +163,6 @@ def register_view(request):
     user = serializer.save(is_active=False, is_verified=False)
 
     # Persist the RSBSA + ID as a VerificationRequest so admin can review
-    rsbsa_number = request.data.get('rsbsa_number', '').strip()
     valid_id_image = request.FILES.get('valid_id_image')
 
     if rsbsa_number and valid_id_image:
