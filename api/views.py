@@ -133,17 +133,6 @@ def call_ml_api(image_path, crop_type='rice', max_retries=3):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register_view(request):
-    """
-    Farmer self-registration.
-    Account starts inactive (is_active=False, is_verified=False) and requires
-    admin/MAO staff approval before the farmer can log in.
-    RSBSA number and valid ID image are required at registration time.
-    """
-    # ── Pre-check RSBSA uniqueness BEFORE creating the User ──────────────────
-    # This prevents orphaned inactive User records when the RSBSA is a duplicate.
-    # The DB unique constraint on VerificationRequest.rsbsa_number is the source
-    # of truth, but checking here gives a clean, user-friendly error at the right
-    # step rather than a 500 after the user has already been persisted.
     rsbsa_number = request.data.get('rsbsa_number', '').strip()
     if not rsbsa_number:
         return Response({'rsbsa_number': ['RSBSA number is required.']}, status=400)
@@ -153,16 +142,13 @@ def register_view(request):
             {'rsbsa_number': ['An account with this RSBSA number already exists.']},
             status=400
         )
-    # ─────────────────────────────────────────────────────────────────────────
 
     serializer = RegisterSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
 
-    # Create account as inactive — admin must approve before login is possible
     user = serializer.save(is_active=False, is_verified=False)
 
-    # Persist the RSBSA + ID as a VerificationRequest so admin can review
     valid_id_image = request.FILES.get('valid_id_image')
 
     if rsbsa_number and valid_id_image:
@@ -190,16 +176,8 @@ def register_view(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_view(request):
-    """
-    Login endpoint.
-    Returns distinct 403 responses for:
-      - blocked accounts  (code: 'account_blocked')
-      - pending/inactive accounts (code: 'account_pending')
-    Returns 400 for invalid credentials.
-    """
     username = request.data.get('username', '').strip()
 
-    # Pre-auth checks: blocked and pending accounts
     try:
         lookup_user = User.objects.get(username=username)
 
@@ -230,7 +208,7 @@ def login_view(request):
             )
 
     except User.DoesNotExist:
-        pass  # Fall through — let LoginSerializer return the standard invalid-credentials error
+        pass
 
     serializer = LoginSerializer(data=request.data)
     if serializer.is_valid():
@@ -262,7 +240,6 @@ def user_profile(request):
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def update_profile(request):
-    """Update user profile information"""
     user = request.user
     serializer = UserSerializer(user, data=request.data, partial=True)
     
@@ -277,26 +254,22 @@ def update_profile(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def change_password(request):
-    """Change user password"""
     user = request.user
     current_password = request.data.get('current_password')
     new_password = request.data.get('new_password')
     
-    # Verify current password
     if not user.check_password(current_password):
         return Response(
             {'error': 'Current password is incorrect'},
             status=400
         )
     
-    # Validate new password
     if len(new_password) < 8:
         return Response(
             {'error': 'New password must be at least 8 characters long'},
             status=400
         )
     
-    # Set new password
     user.set_password(new_password)
     user.save()
     
@@ -308,14 +281,12 @@ def change_password(request):
 @api_view(['GET', 'PATCH'])
 @permission_classes([IsAuthenticated])
 def update_notification_settings(request):
-    """Get or update notification preferences"""
     prefs, created = NotificationPreference.objects.get_or_create(user=request.user)
 
     if request.method == 'GET':
         serializer = NotificationPreferenceSerializer(prefs)
         return Response(serializer.data)
 
-    # PATCH
     serializer = NotificationPreferenceSerializer(prefs, data=request.data, partial=True)
     if serializer.is_valid():
         serializer.save()
@@ -326,10 +297,6 @@ def update_notification_settings(request):
 
 # ==================== NOTIFICATION HELPER ====================
 
-# All valid notification_type values — must stay in sync with models.py choices.
-# FIX: Having this set prevents IntegrityError when views.py uses types that
-#      were missing from the model's choices list (e.g. detection_verified,
-#      detection_rejected).
 _VALID_NOTIFICATION_TYPES = {
     'detection_nearby',
     'verification_approved',
@@ -344,24 +311,17 @@ _VALID_NOTIFICATION_TYPES = {
 }
 
 def create_notification(user, notification_type, title, message, related_id=None):
-    """Create an in-app notification for a user, respecting their preferences."""
     try:
-        # FIX: Guard against unknown notification types — saves us from a silent
-        # DB error that would previously cause the entire calling action to fail
-        # (e.g. verify_detection / reject_detection crashing mid-way because
-        # 'detection_verified'/'detection_rejected' were not in the choices list).
         if notification_type not in _VALID_NOTIFICATION_TYPES:
             print(f"[create_notification] Unknown type '{notification_type}' — falling back to 'system'")
             notification_type = 'system'
 
         prefs, _ = NotificationPreference.objects.get_or_create(user=user)
 
-        # Respect per-user preferences
         if notification_type == 'detection_nearby' and not prefs.detection_alerts:
             return None
         if notification_type == 'critical_pest' and not prefs.critical_alerts:
             return None
-        # admin_alert: only send if push_enabled (general preference)
         if notification_type == 'admin_alert' and not prefs.push_enabled:
             return None
 
@@ -379,7 +339,6 @@ def create_notification(user, notification_type, title, message, related_id=None
 
 # ==================== NOTIFICATION ENDPOINTS ====================
 class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
-    """User notifications - list, read, mark all read"""
     serializer_class = NotificationSerializer
     permission_classes = [IsAuthenticated]
 
@@ -389,7 +348,6 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
         unread_count = queryset.filter(is_read=False).count()
-        # Return latest 50
         notifications = queryset[:50]
         serializer = self.get_serializer(notifications, many=True)
         return Response({
@@ -418,7 +376,6 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def register_push_subscription(request):
-    """Save push subscription for the user"""
     subscription = request.data.get('subscription')
     if not subscription:
         return Response({'error': 'No subscription provided'}, status=400)
@@ -431,10 +388,6 @@ def register_push_subscription(request):
 
 # ==================== FARM REQUEST VIEWSET ====================
 class FarmRequestViewSet(viewsets.ModelViewSet):
-    """
-    Farmers can CREATE farm requests
-    Farmers can VIEW their own farm requests
-    """
     serializer_class = FarmRequestSerializer
     permission_classes = [IsAuthenticated]
 
@@ -486,10 +439,6 @@ class FarmRequestViewSet(viewsets.ModelViewSet):
 
 # ==================== FARM VIEWSET ====================
 class FarmViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    All authenticated users can VIEW all farms (Read-Only).
-    This enables collaborative pest monitoring across the Magalang region.
-    """
     serializer_class = FarmSerializer
     permission_classes = [IsAuthenticated]
 
@@ -509,7 +458,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = PestDetection.objects.all()
 
-        # Geofence filter - only Magalang area
         queryset = queryset.filter(
             latitude__gte=MAGALANG_BOUNDS['south'],
             latitude__lte=MAGALANG_BOUNDS['north'],
@@ -527,7 +475,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
         return queryset
 
     def create_manual_detection(self, request):
-        """Handles manual detection (without image)"""
         try:
             lat = float(request.data.get('latitude', 0))
             lng = float(request.data.get('longitude', 0))
@@ -562,7 +509,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             return Response({'error': str(e)}, status=400)
 
     def create(self, request):
-        """Handles detection via ML API or manual fallback"""
         if 'image' not in request.FILES:
             return self.create_manual_detection(request)
 
@@ -577,7 +523,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if not image:
                 return Response({'error': 'No image provided'}, status=400)
 
-            # Save to temp file for ML API
             with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp_file:
                 for chunk in image.chunks():
                     tmp_file.write(chunk)
@@ -585,12 +530,10 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
 
             print(f"Calling ML API with image: {temp_path}, crop: {crop_type}")
             
-            # Call ML API with retry logic
             analysis = call_ml_api(temp_path, crop_type=crop_type)
             
             print(f"ML API response: {analysis}")
 
-            # Handle no_pest_detected flag from ML service directly
             if analysis.get('no_pest_detected'):
                 return Response({
                     'no_pest_detected': True,
@@ -599,13 +542,11 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     'confidence': 0.0,
                 }, status=200)
 
-            # Check if pest was actually detected
             pest_name = analysis.get('pest_name', '')
             confidence = analysis.get('confidence', 0.0)
             
             print(f"🔍 Validation - pest_name: '{pest_name}', confidence: {confidence}")
             
-            # Don't save if no pest was detected
             if not pest_name or pest_name == 'Unknown Pest' or pest_name == '' or confidence < 0.1:
                 print(f"❌ Validation FAILED - No valid pest detected")
                 return Response({
@@ -616,17 +557,12 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 }, status=200)
             
             print(f"✅ Validation PASSED - Saving detection")
-            print(f"   pest_name: '{pest_name}'")
-            print(f"   confidence: {confidence}")
 
-            # Determine crop type based on detected pest
             detected_crop_type = get_crop_from_pest(pest_name)
-            print(f"   determined crop_type: '{detected_crop_type}' (from pest: '{pest_name}')")
 
             confirmed = request.data.get('confirmed', 'false').lower() == 'true'
             active_status = request.data.get('active', 'false').lower() == 'true'
 
-            # Step 1: Create detection record WITHOUT image first
             detection = PestDetection.objects.create(
                 user=request.user,
                 crop_type=detected_crop_type,
@@ -644,7 +580,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 detected_at=timezone.now()
             )
 
-            # Step 2: Upload image from temp file (fresh file handle for Cloudinary)
             try:
                 with open(temp_path, 'rb') as f:
                     detection.image.save(
@@ -654,12 +589,10 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     )
                 print(f"✅ Image uploaded successfully for detection {detection.id}")
             except Exception as img_err:
-                # Image upload failed but detection is saved - log and continue
                 print(f"⚠️ Image upload failed: {img_err} - detection saved without image")
 
             log_activity(request.user, 'detected_pest', f"Pest: {detection.pest_name}", request)
 
-            # Return enriched response
             serializer = self.get_serializer(detection)
             response_data = serializer.data
             response_data.update({
@@ -674,7 +607,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 'model_used': analysis.get('model_used', ''),
             })
             
-            print(f"✅ Returning successful detection response")
             return Response(response_data, status=201)
 
         except Exception as e:
@@ -702,15 +634,11 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 
     def partial_update(self, request, *args, **kwargs):
         detection_id = kwargs.get('pk')
-        print(f"📋 partial_update called for detection {detection_id}")
-        print(f"📋 Request data: {dict(request.data)}")
-        print(f"📋 Content-Type: {request.content_type}")
         try:
             instance = PestDetection.objects.get(id=detection_id)
             if instance.user != request.user and request.user.role != 'admin':
                 return Response({'error': 'Permission denied'}, status=403)
 
-            # Handle farm_id updates
             if 'farm_id' in request.data:
                 farm_id = request.data['farm_id']
                 if farm_id:
@@ -726,7 +654,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                 else:
                     instance.farm = None
 
-            # Handle severity updates
             if 'severity' in request.data:
                 valid_severities = ['low', 'medium', 'high', 'critical']
                 severity = request.data['severity']
@@ -736,7 +663,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
                     }, status=400)
                 instance.severity = severity
             
-            # Handle confirmed field updates — coerce to proper bool.
             if 'confirmed' in request.data:
                 val = request.data['confirmed']
                 instance.confirmed = val if isinstance(val, bool) else str(val).lower() == 'true'
@@ -748,27 +674,22 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             if 'status' in request.data:
                 instance.status = request.data['status']
 
-            # Allow updating description
             if 'description' in request.data:
                 instance.description = request.data['description']
 
-            # Allow updating coordinates
             if 'latitude' in request.data:
                 try:
-                    new_lat = float(request.data['latitude'])
-                    print(f"📋 Updating latitude: {instance.latitude} -> {new_lat}")
-                    instance.latitude = new_lat
-                except (ValueError, TypeError) as e:
-                    print(f"⚠️ Invalid latitude value: {request.data['latitude']} - {e}")
+                    instance.latitude = float(request.data['latitude'])
+                except (ValueError, TypeError):
+                    pass
             if 'longitude' in request.data:
                 try:
-                    new_lng = float(request.data['longitude'])
-                    print(f"📋 Updating longitude: {instance.longitude} -> {new_lng}")
-                    instance.longitude = new_lng
-                except (ValueError, TypeError) as e:
-                    print(f"⚠️ Invalid longitude value: {request.data['longitude']} - {e}")
+                    instance.longitude = float(request.data['longitude'])
+                except (ValueError, TypeError):
+                    pass
 
-            print(f"📋 Final coords before save: lat={instance.latitude}, lng={instance.longitude}")
+            if 'address' in request.data:
+                instance.address = request.data['address']
 
             if not instance.active:
                 instance.resolved_at = timezone.now()
@@ -779,7 +700,6 @@ class PestDetectionViewSet(viewsets.ModelViewSet):
             
             instance.save()
             
-            # Check for proximity alerts when detection is confirmed
             if 'confirmed' in request.data and instance.confirmed and instance.active and instance.farm:
                 try:
                     created_alerts = check_and_create_proximity_alerts(instance)
@@ -912,37 +832,20 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def _build_alert_queryset(self, user):
-        """
-        Shared helper used by both get_queryset() and my_alerts().
-
-        FIX: The old code only returned alerts whose target_area was blank/null
-        OR contained 'Magalang'. This meant that when an admin created an alert
-        with an empty target_area (broadcast to all), farmers with NO farms would
-        see it but farmers WITH farms would only see it if one of their farm names
-        matched 'Magalang' — which is almost never true.
-
-        The corrected logic:
-          - Empty/null target_area  →  shown to EVERYONE (true broadcast)
-          - target_area == 'Magalang' → shown to everyone (region-wide)
-          - target_area matches a user's farm name → shown to that farmer
-        """
         now = timezone.now()
 
-        # Active, non-expired alerts
         base_qs = Alert.objects.filter(
             is_active=True
         ).filter(
             Q(expires_at__gte=now) | Q(expires_at__isnull=True)
         )
 
-        # Broadcast: no target area set, or explicitly targeting the whole region
         broadcast_q = (
             Q(target_area='') |
             Q(target_area__isnull=True) |
             Q(target_area__icontains='Magalang')
         )
 
-        # Farm-specific: target_area matches any of this user's farm names
         user_farm_names = list(
             Farm.objects.filter(user=user).values_list('name', flat=True)
         )
@@ -954,7 +857,6 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
                 farm_q |= Q(target_area__icontains=farm_name)
             return base_qs.filter(broadcast_q | farm_q).order_by('-created_at')
 
-        # User has no farms — only show broadcast alerts
         return base_qs.filter(broadcast_q).order_by('-created_at')
 
     def get_queryset(self):
@@ -962,24 +864,18 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=False, methods=['get'])
     def my_alerts(self, request):
-        """Get alerts specific to user's farms + general/broadcast alerts."""
         alerts = self._build_alert_queryset(request.user)
         serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
     def proximity_stats(self, request):
-        """Get proximity alert statistics"""
         stats = get_proximity_alert_stats()
         return Response(stats)
 
 
 # ==================== VERIFICATION REQUEST VIEWSET ====================
 class VerificationRequestViewSet(viewsets.ModelViewSet):
-    """
-    Farmers can submit verification requests with RSBSA number and valid ID.
-    Only one pending/approved request allowed per user at a time.
-    """
     serializer_class = VerificationRequestSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -1038,7 +934,6 @@ class VerificationRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def my_request(self, request):
-        """Get the current user's latest verification request"""
         latest = VerificationRequest.objects.filter(user=request.user).first()
         if not latest:
             return Response(None)
@@ -1048,7 +943,6 @@ class VerificationRequestViewSet(viewsets.ModelViewSet):
 
 # ==================== ADMIN VERIFICATION REQUEST MANAGEMENT ====================
 class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
-    """Admin and MAO staff can view and review verification requests"""
     queryset = VerificationRequest.objects.all()
     serializer_class = VerificationRequestSerializer
     permission_classes = [IsAdminOrMAOStaff]
@@ -1056,7 +950,6 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
-        """Approve registration — activate the account and mark user as verified."""
         vr = self.get_object()
 
         if vr.status != 'pending':
@@ -1065,7 +958,6 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Activate account + mark verified in one query
         User.objects.filter(pk=vr.user.pk).update(is_active=True, is_verified=True)
 
         VerificationRequest.objects.filter(pk=vr.pk).update(
@@ -1095,7 +987,6 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
-        """Reject verification request"""
         vr = self.get_object()
 
         if vr.status != 'pending':
@@ -1130,7 +1021,6 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def pending_requests(self, request):
-        """Get all pending verification requests"""
         pending = self.get_queryset().filter(status='pending')
         serializer = self.get_serializer(pending, many=True, context={'request': request})
         return Response(serializer.data)
@@ -1139,14 +1029,12 @@ class AdminVerificationRequestViewSet(viewsets.ModelViewSet):
 # ==================== ADMIN VIEWSETS ====================
 
 class AdminUserManagementViewSet(viewsets.ModelViewSet):
-    """Admin can manage all users"""
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAdmin]
     
     @action(detail=False, methods=['post'])
     def create_staff(self, request):
-        """Admin creates a MAO staff account directly"""
         data = request.data
         username = data.get('username', '').strip()
         email = data.get('email', '').strip()
@@ -1247,7 +1135,6 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def block_user(self, request, pk=None):
-        """Block a farmer account due to repeated rejected detections."""
         user = self.get_object()
         if user.role not in ('farmer',):
             return Response(
@@ -1261,7 +1148,7 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
             )
         reason = request.data.get('reason', '').strip()
         user.is_blocked = True
-        user.is_active = False  # prevent login
+        user.is_active = False
         user.save(update_fields=['is_blocked', 'is_active'])
         log_activity(
             request.user,
@@ -1282,13 +1169,11 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def unblock_user(self, request, pk=None):
-        """Unblock a previously blocked farmer account."""
         user = self.get_object()
         if not user.is_blocked:
             return Response({'error': 'This account is not blocked.'}, status=status.HTTP_400_BAD_REQUEST)
         user.is_blocked = False
         user.is_active = True
-        # Optionally reset the rejected count on unblock
         reset_count = request.data.get('reset_count', False)
         if reset_count:
             user.rejected_detection_count = 0
@@ -1427,7 +1312,6 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
         detection.admin_notes = notes
         detection.save()
 
-        # Increment the farmer's rejected detection counter
         from django.db import models as db_models
         User.objects.filter(pk=detection.user.pk).update(
             rejected_detection_count=db_models.F('rejected_detection_count') + 1
@@ -1489,14 +1373,12 @@ class AdminDetectionManagementViewSet(viewsets.ModelViewSet):
         
 # ==================== ADMIN FARM REQUEST MANAGEMENT ====================
 class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
-    """Admin and MAO staff can manage farm requests"""
     queryset = FarmRequest.objects.all()
     serializer_class = FarmRequestSerializer
     permission_classes = [IsAdminOrMAOStaff]
     
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
-        """Approve farm request and create farm"""
         farm_request = self.get_object()
         
         if farm_request.status != 'pending':
@@ -1506,9 +1388,13 @@ class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
             )
         
         try:
+            # FIX: copy address and barangay from the farm request so they
+            # appear in reports and the heatmap infestations panel.
             farm = Farm.objects.create(
                 user=farm_request.user,
                 name=farm_request.name,
+                address=farm_request.address,       # ← FIXED: was missing
+                barangay=farm_request.barangay,     # ← FIXED: was missing
                 lat=farm_request.lat,
                 lng=farm_request.lng,
                 size=farm_request.size,
@@ -1550,7 +1436,6 @@ class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
-        """Reject farm request"""
         farm_request = self.get_object()
         
         if farm_request.status != 'pending':
@@ -1582,7 +1467,6 @@ class AdminFarmRequestManagementViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def pending_requests(self, request):
-        """Get pending requests"""
         pending = self.get_queryset().filter(status='pending')
         serializer = self.get_serializer(pending, many=True)
         return Response(serializer.data)
@@ -1624,27 +1508,12 @@ class AdminAlertManagementViewSet(viewsets.ModelViewSet):
         alert = serializer.save(created_by=self.request.user)
         log_activity(self.request.user, 'created_alert', f'Alert: {alert.title}', self.request)
         
-        # ── FIX: Determine the correct set of target users ───────────────────
-        # Old code used `farms__name=alert.target_area` which only matched farms
-        # whose name exactly equalled the target_area string. Combined with the
-        # AlertViewSet queryset bug this meant broadcast alerts (empty target_area)
-        # sent in-app bells to ALL farmers but the banner query wouldn't show them
-        # to farmers who had farms (because the farm_q would dominate).
-        #
-        # New behaviour:
-        #   - No target_area (broadcast) → notify all farmers
-        #   - target_area set → notify farmers who own a farm with that name,
-        #     plus fall back to all farmers if no farm matches (prevents silent
-        #     notifications to nobody when the admin mis-types a farm name).
-        # ─────────────────────────────────────────────────────────────────────
         if alert.target_area:
             target_users = User.objects.filter(
                 role='farmer',
                 farms__name__icontains=alert.target_area
             ).distinct()
 
-            # Safety fallback: if no farmers own a farm matching the target_area
-            # treat it as a broadcast so the alert is never silently lost.
             if not target_users.exists():
                 print(
                     f"[AdminAlertManagementViewSet] No farms matched target_area "
@@ -1652,7 +1521,6 @@ class AdminAlertManagementViewSet(viewsets.ModelViewSet):
                 )
                 target_users = User.objects.filter(role='farmer')
         else:
-            # Blank target_area = broadcast to every farmer
             target_users = User.objects.filter(role='farmer')
 
         notification_count = 0
