@@ -923,12 +923,23 @@ class VerificationRequestViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        if request.user.role != 'admin' and instance.status != 'pending':
+        if request.user.role == 'admin':
+            # Admins can delete pending or rejected requests.
+            # Also delete the associated user if the request was rejected
+            # (they never had active access, so cleanup is safe).
+            if instance.status == 'rejected':
+                user_to_delete = instance.user
+                instance.delete()
+                user_to_delete.delete()
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            return super().destroy(request, *args, **kwargs)
+        # Non-admins can only cancel their own pending requests
+        if instance.status != 'pending':
             return Response(
                 {'error': 'Only pending requests can be cancelled.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        if request.user.role != 'admin' and instance.user != request.user:
+        if instance.user != request.user:
             return Response({'error': 'Permission denied.'}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 
