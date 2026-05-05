@@ -1,9 +1,10 @@
 """
 Data migration to update default admin user password.
-Place in: backend/api/migrations/0003_update_admin_password.py
+Place in: backend/api/migrations/0018_change_admin_password.py
 """
 
 from django.db import migrations
+from django.contrib.auth.hashers import make_password
 
 
 def update_admin_password(apps, schema_editor):
@@ -12,7 +13,7 @@ def update_admin_password(apps, schema_editor):
 
     try:
         user = User.objects.get(username='admin', role='admin')
-        user.set_password('pestcheckadmin04072026')  # ← change this
+        user.password = make_password('pestcheckadmin04072026')
         user.save()
     except User.DoesNotExist:
         pass
@@ -24,7 +25,7 @@ def reverse_migration(apps, schema_editor):
 
     try:
         user = User.objects.get(username='admin', role='admin')
-        user.set_password('admin123')
+        user.password = make_password('admin123')
         user.save()
     except User.DoesNotExist:
         pass
@@ -32,7 +33,7 @@ def reverse_migration(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ('api', '0017_backfill'),
+        ('api', '0017_backfill'),  # ← update to your previous migration
     ]
 
     operations = [
