@@ -8,16 +8,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # ── FarmRequest ────────────────────────────────────────────────────────
-        migrations.AddField(
-            model_name='farmrequest',
-            name='address',
-            field=models.CharField(
-                blank=True,
-                max_length=500,
-                help_text='General address or location description of the farm',
-            ),
-        ),
         migrations.AddField(
             model_name='farmrequest',
             name='barangay',
@@ -25,16 +15,6 @@ class Migration(migrations.Migration):
                 blank=True,
                 max_length=100,
                 help_text='Barangay in Magalang, Pampanga where the farm is located',
-            ),
-        ),
-        # ── Farm ───────────────────────────────────────────────────────────────
-        migrations.AddField(
-            model_name='farm',
-            name='address',
-            field=models.CharField(
-                blank=True,
-                max_length=500,
-                help_text='General address or location description',
             ),
         ),
         migrations.AddField(
